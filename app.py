@@ -1,4 +1,4 @@
-# Versão: 2.1
+# Versão: 2.2
 
 import streamlit as st
 import pandas as pd
@@ -18,8 +18,8 @@ MAPA_STATUS_FIXO = {
     "Aguardando vaga": "⚪ Aguardando vaga"
 }
 
-
 def determinar_status(row):
+
     status_orig = str(row["Situação do requerimento de matrícula"]).strip()
     convocacoes = row["Nº de convocações"]
 
@@ -55,16 +55,6 @@ def processar_candidatos(df):
 
     df["Ocupa Vaga"] = df["Status Exibição"].isin(status_ocupantes)
 
-    df = df.sort_values("Nota final", ascending=False)
-
-    df["Ranking Geral"] = range(1, len(df) + 1)
-
-    df["Ranking Cota"] = (
-        df.groupby("Cota do candidato")["Nota final"]
-        .rank(method="first", ascending=False)
-        .astype(int)
-    )
-
     return df
 
 
@@ -74,12 +64,8 @@ def color_vaga(row):
     cota_vaga = row.get("Cota da vaga garantida", None)
     cota_candidato = row.get("Cota do candidato", None)
 
-    # não destacar quem não ocupa vaga
     if "cancelada" in status.lower() or "compareceu" in status.lower():
         return [""] * len(row)
-
-    if cota_vaga == "AC":
-        return ["background-color:#dbeafe"] * len(row)
 
     if cota_candidato is not None and cota_vaga == cota_candidato:
         return ["background-color:#dcfce7"] * len(row)
@@ -153,17 +139,15 @@ def main():
     else:
         df_final = df_curso_cand[df_curso_cand["Processo seletivo"] == proc_sel]
 
-    df_final = df_final.sort_values("Nota final", ascending=False)
-
-    df_final = df_final.reset_index(drop=True)
+    df_final = df_final.sort_values("Nota final", ascending=False).reset_index(drop=True)
 
     df_final["Ranking Geral"] = df_final.index + 1
 
     df_final["Ranking Cota"] = (
-    df_final.groupby("Cota do candidato")["Nota final"]
-    .rank(method="first", ascending=False)
-    .astype(int)
-)
+        df_final.groupby("Cota do candidato")["Nota final"]
+        .rank(method="first", ascending=False)
+        .astype(int)
+    )
 
     colunas_cotas = [
         "AC","LB_EP","LB_PCD","LB_PPI","LB_Q",
@@ -275,6 +259,12 @@ def main():
     for i, cota in enumerate(colunas_cotas, start=1):
 
         with tabs[i]:
+
+            st.info(
+                "Linhas em verde indicam candidatos que ocuparam vaga desta cota. "
+                "Os demais matriculados entraram por sua própria nota "
+                "(ampla concorrência) ou por outra modalidade de cota."
+            )
 
             df_cota = df_final[df_final["Cota do candidato"] == cota]
 
