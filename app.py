@@ -1,43 +1,41 @@
-# Versão: 1.1.1 (Development)
+# Versão: 1.1.2 (Development)
 import streamlit as st
 import pandas as pd
 
 # 1. Configurações da Página
 st.set_page_config(page_title="Dashboard de Processo Seletivo", layout="wide")
 
-# 2. Definição do Cenário de Vagas (Conforme Edital)
-VAGAS = {
+# 2. Definição do Cenário de Vagas (Ajustado para 44 vagas)
+VAGAS_PADRAO = {
     "AC": 22,
-    "LB PPI": 3,
-    "LB Q": 1,
-    "LB PCD": 1,
-    "LB EP": 5,
-    "LI PPI": 3,
-    "LI PCD": 1,
-    "LI EP": 8,
-    "LI Q": 0
+    "LI_EP": 8,
+    "LB_EP": 5,
+    "LI_PPI": 3,
+    "LB_PPI": 3,
+    "LI_PCD": 1,
+    "LB_PCD": 1,
+    "LB_Q": 1
 }
 
-def processar_ranqueamento(df):
+def processar_ranqueamento(df, vagas_config):
     """
-    Motor matemático que aplica a lógica de cotas e deslocamento.
+    Motor matemático com lógica de cotas, deslocamento e filtragem de status.
     """
-    # Ordena todos os candidatos pela nota final em ordem decrescente
+    # Garante que a nota seja numérica e ordena
+    df["Nota final"] = pd.to_numeric(df["Nota final"], errors='coerce').fillna(0)
     df = df.sort_values(by="Nota final", ascending=False).reset_index(drop=True)
     
-    # Cria colunas para o resultado
     df["Status Final"] = "🟡 Lista de Espera"
     df["Ocupando Vaga De"] = "-"
     
-    # Dicionário para controlar vagas restantes
-    vagas_restantes = VAGAS.copy()
+    vagas_restantes = vagas_config.copy()
     
-    # Passo 1: Preencher Ampla Concorrência (AC)
+    # Passo 1: Ampla Concorrência (AC)
     for index, row in df.iterrows():
         status_req = str(row["Situação do requerimento de matrícula"]).upper()
         
-        # Ignora quem já está desclassificado ou desistente na planilha base
-        if "DESCLASSIFICADO" in status_req or "DESISTENTE" in status_req or "REPROVADO" in status_req:
+        # Filtro de eliminados/desistentes
+        if any(term in status_req for term in ["DESCLASSIFICADO", "DESISTENTE", "REPROVADO", "INDEFERIDO"]):
             df.at[index, "Status Final"] = f"🔴 {row['Situação do requerimento de matrícula']}"
             continue
             
@@ -46,15 +44,13 @@ def processar_ranqueamento(df):
             df.at[index, "Ocupando Vaga De"] = "AC"
             vagas_restantes["AC"] -= 1
 
-    # Passo 2: Preencher Cotas
+    # Passo 2: Cotas (Respeitando a nova nomenclatura com underline)
     for index, row in df.iterrows():
-        # Se já foi aprovado na AC ou foi desclassificado, pula
         if df.at[index, "Status Final"] != "🟡 Lista de Espera":
             continue
             
         cota_candidato = str(row["Cota do candidato"]).strip()
         
-        # Verifica se o candidato pertence a uma cota válida e se há vaga
         if cota_candidato in vagas_restantes and vagas_restantes[cota_candidato] > 0:
             df.at[index, "Status Final"] = f"🔵 Aprovado - {cota_candidato}"
             df.at[index, "Ocupando Vaga De"] = cota_candidato
@@ -63,61 +59,58 @@ def processar_ranqueamento(df):
     return df
 
 def main():
-    st.title("🏆 Resultado Oficial - Processo Seletivo")
+    st.title("🏆 Dashboard de Resultados por Curso")
     st.markdown("---")
 
-    # 3. Leitura dos Dados (Agora aceitando Excel)
-    arquivo_upado = st.file_uploader("Carregue sua planilha Excel (.xlsx ou .xls) aqui", type=["xlsx", "xls"])
+    arquivo_upado = st.file_uploader("Carregue sua planilha Excel (.xlsx)", type=["xlsx"])
     
     if arquivo_upado is not None:
-        # Lê o Excel nativamente
-        df_bruto = pd.read_excel(arquivo_upado)
+        df_completo = pd.read_excel(arquivo_upado)
         
-        # Processa a lógica
-        df_processado = processar_ranqueamento(df_bruto)
+        # 3. Filtro de Cursos Dinâmico
+        lista_cursos = sorted(df_completo["Curso"].unique().tolist())
+        curso_selecionado = st.selectbox("🎯 Selecione o Curso para visualizar o ranking:", lista_cursos)
         
-        # 4. KPIs (Indicadores Visuais)
-        total_inscritos = len(df_processado)
-        aprovados_ac = len(df_processado[df_processado["Ocupando Vaga De"] == "AC"])
-        aprovados_cotas = len(df_processado[(df_processado["Ocupando Vaga De"] != "AC") & (df_processado["Ocupando Vaga De"] != "-")])
+        # Filtra a base apenas para o curso escolhido
+        df_curso = df_completo[df_completo["Curso"] == curso_selecionado].copy()
         
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total de Inscritos", total_inscritos)
-        col2.metric("Vagas AC Preenchidas", f"{aprovados_ac} / {VAGAS['AC']}")
-        col3.metric("Vagas Cotas Preenchidas", f"{aprovados_cotas} / {sum(VAGAS.values()) - VAGAS['AC']}")
-        col4.metric("Vagas Totais Ofertadas", sum(VAGAS.values()))
+        # Processa o ranking para este curso específico
+        df_resultado = processar_ranqueamento(df_curso, VAGAS_PADRAO)
+        
+        # 4. Painel de Indicadores (KPIs)
+        total_vagas = sum(VAGAS_PADRAO.values())
+        aprovados = len(df_resultado[df_resultado["Ocupando Vaga De"] != "-"])
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Candidatos no Curso", len(df_resultado))
+        col2.metric("Vagas Preenchidas", f"{aprovados} / {total_vagas}")
+        col3.metric("Status do Curso", "Vagas Esgotadas" if aprovados >= total_vagas else "Vagas em Aberto")
         
         st.markdown("---")
         
-        # 5. Interface de Abas (Tabs)
-        # Cria uma lista de abas ignorando a cota LI Q que tem 0 vagas
-        abas_nomes = ["Visão Geral", "AC"] + [cota for cota, qtd in VAGAS.items() if cota != "AC" and qtd > 0]
+        # 5. Navegação por Abas
+        abas_nomes = ["Visão Geral", "Ampla Concorrência"] + [c for c in VAGAS_PADRAO.keys() if c != "AC"]
         tabs = st.tabs(abas_nomes)
         
-        # Colunas que serão exibidas na tabela final para ficar limpo
-        colunas_exibicao = ["Inscrição", "Nome", "Nota final", "Cota do candidato", "Situação do requerimento de matrícula", "Status Final", "Ocupando Vaga De"]
-        
-        # Preenchendo a Aba "Visão Geral"
+        cols_view = ["Inscrição", "Nome", "Nota final", "Cota do candidato", "Situação do requerimento de matrícula", "Status Final"]
+
         with tabs[0]:
-            st.subheader("Ranking Geral")
-            st.dataframe(df_processado[colunas_exibicao], use_container_width=True, hide_index=True)
-            
-        # Preenchendo a Aba "AC"
+            st.subheader(f"Lista Geral - {curso_selecionado}")
+            st.dataframe(df_resultado[cols_view], use_container_width=True, hide_index=True)
+
         with tabs[1]:
-            st.subheader("Ampla Concorrência (AC)")
-            filtro_ac = df_processado[(df_processado["Ocupando Vaga De"] == "AC") | (df_processado["Status Final"] == "🟡 Lista de Espera")]
-            st.dataframe(filtro_ac[colunas_exibicao], use_container_width=True, hide_index=True)
-            
-        # Preenchendo as Abas de Cotas
-        for i, nome_cota in enumerate(abas_nomes[2:], start=2):
+            st.subheader("Classificação Ampla Concorrência")
+            df_ac = df_resultado[(df_resultado["Ocupando Vaga De"] == "AC") | (df_resultado["Status Final"] == "🟡 Lista de Espera")]
+            st.dataframe(df_ac[cols_view], use_container_width=True, hide_index=True)
+
+        for i, cota in enumerate(abas_nomes[2:], start=2):
             with tabs[i]:
-                st.subheader(f"Cota: {nome_cota}")
-                # Mostra apenas candidatos que se inscreveram NESTA cota
-                filtro_cota = df_processado[df_processado["Cota do candidato"] == nome_cota]
-                st.dataframe(filtro_cota[colunas_exibicao], use_container_width=True, hide_index=True)
+                st.subheader(f"Candidatos da Cota: {cota}")
+                df_cota = df_resultado[df_resultado["Cota do candidato"] == cota]
+                st.dataframe(df_cota[cols_view], use_container_width=True, hide_index=True)
                 
     else:
-        st.info("👆 Por favor, faça o upload da sua planilha Excel extraída do sistema para gerar o Dashboard.")
+        st.info("💡 Aguardando upload da planilha Excel para iniciar o processamento.")
 
 if __name__ == "__main__":
     main()
