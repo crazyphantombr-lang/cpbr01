@@ -70,10 +70,13 @@ def processar_candidatos(df):
 
 def color_vaga(row):
 
-    if row["Cota da vaga garantida"] == "AC":
+    cota_vaga = row.get("Cota da vaga garantida", None)
+    cota_candidato = row.get("Cota do candidato", None)
+
+    if cota_vaga == "AC":
         return ["background-color:#dbeafe"] * len(row)
 
-    if row["Cota da vaga garantida"] == row["Cota do candidato"]:
+    if cota_candidato is not None and cota_vaga == cota_candidato:
         return ["background-color:#dcfce7"] * len(row)
 
     return [""] * len(row)
