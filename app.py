@@ -1,4 +1,18 @@
-# Versão: 2.2
+Código completo atualizado com:
+
+* **“Em processo” não ocupa vaga**
+* **Apenas “Matriculado” ocupa vaga**
+* **Resumo geral aparece antes de selecionar curso**
+* **Resumo geral mostra Matriculados e Em processo**
+* **Resumo por curso automático**
+* **Ranking geral e ranking por cota**
+* **Destaque verde apenas para quem realmente usa vaga da cota**
+* **Suporte a excedente de vagas**
+
+Aplicação em Streamlit.
+
+```python
+# Versão: 2.3
 
 import streamlit as st
 import pandas as pd
@@ -20,6 +34,7 @@ MAPA_STATUS_FIXO = {
     "Convocado": "🟡 Em processo",
     "Aguardando vaga": "⚪ Aguardando vaga"
 }
+
 
 def determinar_status(row):
 
@@ -50,13 +65,8 @@ def processar_candidatos(df):
 
     df["Status Exibição"] = df.apply(determinar_status, axis=1)
 
-    status_ocupantes = [
-        "🟢 Matriculado",
-        "🔵 Etapa 1 concluída",
-        "🟡 Em processo"
-    ]
-
-    df["Ocupa Vaga"] = df["Status Exibição"].isin(status_ocupantes)
+    df["Ocupa Vaga"] = df["Status Exibição"] == "🟢 Matriculado"
+    df["Em Processo"] = df["Status Exibição"] == "🟡 Em processo"
 
     return df
 
@@ -70,7 +80,7 @@ def color_vaga(row):
     if "cancelada" in status.lower() or "compareceu" in status.lower():
         return [""] * len(row)
 
-    if cota_candidato is not None and cota_vaga == cota_candidato:
+    if cota_candidato is not None and cota_vaga == cota_candidato and status == "🟢 Matriculado":
         return ["background-color:#dcfce7"] * len(row)
 
     return [""] * len(row)
@@ -105,6 +115,41 @@ def main():
 
     df_candidatos = processar_candidatos(df_candidatos_raw)
 
+    # -------------------------
+    # RESUMO GERAL
+    # -------------------------
+
+    st.subheader("Resumo geral")
+
+    total_matriculados = (df_candidatos["Status Exibição"] == "🟢 Matriculado").sum()
+    total_processo = (df_candidatos["Status Exibição"] == "🟡 Em processo").sum()
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric("Matriculados", total_matriculados)
+
+    with col2:
+        st.metric("Em processo", total_processo)
+
+    resumo_cursos = (
+        df_candidatos
+        .groupby("Curso")
+        .agg(
+            Matriculados=("Status Exibição", lambda x: (x == "🟢 Matriculado").sum()),
+            Em_Processo=("Status Exibição", lambda x: (x == "🟡 Em processo").sum())
+        )
+        .reset_index()
+    )
+
+    st.dataframe(resumo_cursos, use_container_width=True)
+
+    st.markdown("---")
+
+    # -------------------------
+    # FILTROS
+    # -------------------------
+
     with st.sidebar:
 
         st.header("Filtros")
@@ -132,7 +177,6 @@ def main():
             proc_sel = None
 
     if curso_sel == "-- Selecione --":
-        st.info("Selecione um curso.")
         return
 
     df_curso_cand = df_candidatos[df_candidatos["Curso"] == curso_sel]
@@ -199,13 +243,15 @@ def main():
 
     df_resumo = pd.DataFrame(resumo_list)
 
+    st.subheader(f"Ocupação de vagas — {curso_sel}")
+
     col1, col2, col3 = st.columns(3)
 
     with col1:
         st.metric("Total de vagas", total_vagas)
 
     with col2:
-        st.metric("Vagas ocupadas", total_ocupado)
+        st.metric("Matriculados", total_ocupado)
 
     with col3:
         st.metric("Saldo", total_vagas - total_ocupado)
@@ -228,8 +274,6 @@ def main():
     )
 
     st.altair_chart(chart, use_container_width=True)
-
-    st.subheader("Resumo de vagas")
 
     st.dataframe(
         df_resumo.set_index("Cota").T,
@@ -290,3 +334,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
