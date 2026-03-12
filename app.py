@@ -1,14 +1,10 @@
-# Versão: 2.0 (UI Upgrade)
+# Versão: 2.1
 
 import streamlit as st
 import pandas as pd
 import altair as alt
 
 st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
-
-# -------------------------
-# MAPA DE STATUS
-# -------------------------
 
 MAPA_STATUS_FIXO = {
     "Etapa 2 concluída": "🟢 Matriculado",
@@ -24,22 +20,17 @@ MAPA_STATUS_FIXO = {
 
 
 def determinar_status(row):
-
     status_orig = str(row["Situação do requerimento de matrícula"]).strip()
     convocacoes = row["Nº de convocações"]
 
     if status_orig in MAPA_STATUS_FIXO:
         return MAPA_STATUS_FIXO[status_orig]
 
-    if pd.isna(row["Situação do requerimento de matrícula"]) or status_orig.lower() in ['nan', '']:
+    if pd.isna(row["Situação do requerimento de matrícula"]) or status_orig.lower() in ["nan", ""]:
         return "🔴 Não compareceu" if convocacoes > 0 else "⚪ Lista de espera"
 
     return "⚪ Aguardando vaga"
 
-
-# -------------------------
-# PROCESSAMENTO
-# -------------------------
 
 def processar_candidatos(df):
 
@@ -47,10 +38,12 @@ def processar_candidatos(df):
 
     df["Curso"] = df["Curso"].fillna("Não Informado").astype(str).str.strip()
     df["Processo seletivo"] = df["Processo seletivo"].fillna("Geral").astype(str).str.strip()
-    df["Cota do candidato"] = df["Cota do candidato"].fillna("AC").astype(str).str.strip()
 
-    df["Nota final"] = pd.to_numeric(df["Nota final"], errors='coerce').fillna(0)
-    df["Nº de convocações"] = pd.to_numeric(df["Nº de convocações"], errors='coerce').fillna(0)
+    df["Cota do candidato"] = df["Cota do candidato"].fillna("AC").astype(str).str.strip()
+    df["Cota da vaga garantida"] = df["Cota da vaga garantida"].fillna("AC").astype(str).str.strip()
+
+    df["Nota final"] = pd.to_numeric(df["Nota final"], errors="coerce").fillna(0)
+    df["Nº de convocações"] = pd.to_numeric(df["Nº de convocações"], errors="coerce").fillna(0)
 
     df["Status Exibição"] = df.apply(determinar_status, axis=1)
 
@@ -62,33 +55,29 @@ def processar_candidatos(df):
 
     df["Ocupa Vaga"] = df["Status Exibição"].isin(status_ocupantes)
 
+    df = df.sort_values("Nota final", ascending=False)
+
+    df["Ranking Geral"] = range(1, len(df) + 1)
+
+    df["Ranking Cota"] = (
+        df.groupby("Cota do candidato")["Nota final"]
+        .rank(method="first", ascending=False)
+        .astype(int)
+    )
+
     return df
 
 
-# -------------------------
-# CORES VISUAIS
-# -------------------------
+def color_vaga(row):
 
-def color_status(val):
+    if row["Cota da vaga garantida"] == "AC":
+        return ["background-color:#dbeafe"] * len(row)
 
-    if "Matriculado" in val:
-        return "background-color:#c6f6d5"
+    if row["Cota da vaga garantida"] == row["Cota do candidato"]:
+        return ["background-color:#dcfce7"] * len(row)
 
-    if "Etapa 1" in val:
-        return "background-color:#bee3f8"
+    return [""] * len(row)
 
-    if "processo" in val:
-        return "background-color:#fefcbf"
-
-    if "cancelada" in val or "compareceu" in val:
-        return "background-color:#fed7d7"
-
-    return ""
-
-
-# -------------------------
-# APP
-# -------------------------
 
 def main():
 
@@ -100,232 +89,192 @@ def main():
         type=["xlsx"]
     )
 
-    if arquivo:
+    if not arquivo:
+        st.info("Aguardando upload da planilha.")
+        return
 
-        try:
+    try:
 
-            df_candidatos_raw = pd.read_excel(arquivo, sheet_name="ranking")
-            df_vagas_raw = pd.read_excel(arquivo, sheet_name="vagas")
+        df_candidatos_raw = pd.read_excel(arquivo, sheet_name="ranking")
+        df_vagas_raw = pd.read_excel(arquivo, sheet_name="vagas")
 
-            df_vagas_raw["Curso"] = df_vagas_raw["Curso"].astype(str).str.strip()
-            df_vagas_raw["Processo seletivo"] = df_vagas_raw["Processo seletivo"].astype(str).str.strip()
+        df_vagas_raw["Curso"] = df_vagas_raw["Curso"].astype(str).str.strip()
+        df_vagas_raw["Processo seletivo"] = df_vagas_raw["Processo seletivo"].astype(str).str.strip()
 
-        except Exception as e:
+    except Exception as e:
 
-            st.error(f"Erro ao ler planilha: {e}")
-            return
+        st.error(f"Erro ao ler planilha: {e}")
+        return
 
-        df_candidatos = processar_candidatos(df_candidatos_raw)
+    df_candidatos = processar_candidatos(df_candidatos_raw)
 
-        # -------------------------
-        # FILTROS SIDEBAR
-        # -------------------------
+    with st.sidebar:
 
-        with st.sidebar:
+        st.header("Filtros")
 
-            st.header("Filtros")
+        cursos = sorted(df_candidatos["Curso"].unique())
 
-            cursos = sorted(df_candidatos["Curso"].unique())
+        curso_sel = st.selectbox(
+            "Curso",
+            ["-- Selecione --"] + cursos
+        )
 
-            curso_sel = st.selectbox(
-                "Curso",
-                ["-- Selecione --"] + cursos
+        if curso_sel != "-- Selecione --":
+
+            df_curso = df_candidatos[df_candidatos["Curso"] == curso_sel]
+
+            processos = sorted(df_curso["Processo seletivo"].unique())
+
+            proc_sel = st.selectbox(
+                "Processo seletivo",
+                ["Todos"] + processos
             )
-
-            if curso_sel != "-- Selecione --":
-
-                df_curso = df_candidatos[df_candidatos["Curso"] == curso_sel]
-
-                processos = sorted(df_curso["Processo seletivo"].unique())
-
-                proc_sel = st.selectbox(
-                    "Processo seletivo",
-                    ["Todos"] + processos
-                )
-
-            else:
-
-                proc_sel = None
-
-        if curso_sel == "-- Selecione --":
-
-            st.info("Selecione um curso para visualizar o dashboard.")
-            return
-
-        # -------------------------
-        # FILTRAGEM
-        # -------------------------
-
-        df_curso_cand = df_candidatos[df_candidatos["Curso"] == curso_sel]
-
-        if proc_sel == "Todos":
-
-            df_final = df_curso_cand.sort_values("Nota final", ascending=False)
 
         else:
 
-            df_final = df_curso_cand[
-                df_curso_cand["Processo seletivo"] == proc_sel
-            ].sort_values("Nota final", ascending=False)
+            proc_sel = None
 
-        # -------------------------
-        # VAGAS
-        # -------------------------
+    if curso_sel == "-- Selecione --":
+        st.info("Selecione um curso.")
+        return
 
-        colunas_cotas = [
-            "AC","LB_EP","LB_PCD","LB_PPI","LB_Q",
-            "LI_EP","LI_PCD","LI_PPI","LI_Q"
-        ]
+    df_curso_cand = df_candidatos[df_candidatos["Curso"] == curso_sel]
 
-        if proc_sel == "Todos":
+    if proc_sel == "Todos":
+        df_final = df_curso_cand
+    else:
+        df_final = df_curso_cand[df_curso_cand["Processo seletivo"] == proc_sel]
 
-            vagas_pactuadas = df_vagas_raw[
-                df_vagas_raw["Curso"] == curso_sel
-            ][colunas_cotas].sum().to_dict()
+    df_final = df_final.sort_values("Nota final", ascending=False)
 
-        else:
+    colunas_cotas = [
+        "AC","LB_EP","LB_PCD","LB_PPI","LB_Q",
+        "LI_EP","LI_PCD","LI_PPI","LI_Q"
+    ]
 
-            vagas_pactuadas = df_vagas_raw[
-                (df_vagas_raw["Curso"] == curso_sel) &
-                (df_vagas_raw["Processo seletivo"] == proc_sel)
-            ][colunas_cotas].sum().to_dict()
+    if proc_sel == "Todos":
 
-        # -------------------------
-        # RESUMO
-        # -------------------------
+        vagas_pactuadas = df_vagas_raw[
+            df_vagas_raw["Curso"] == curso_sel
+        ][colunas_cotas].sum().to_dict()
 
-        resumo_list = []
+    else:
 
-        total_ocupado = 0
-        total_vagas = sum(vagas_pactuadas.values())
+        vagas_pactuadas = df_vagas_raw[
+            (df_vagas_raw["Curso"] == curso_sel) &
+            (df_vagas_raw["Processo seletivo"] == proc_sel)
+        ][colunas_cotas].sum().to_dict()
 
-        for cota in colunas_cotas:
+    resumo_list = []
 
-            vagas = int(vagas_pactuadas.get(cota, 0))
+    total_ocupado = 0
+    total_vagas = sum(vagas_pactuadas.values())
 
-            ocupadas = len(
-                df_final[
-                    (df_final["Cota do candidato"] == cota) &
-                    (df_final["Ocupa Vaga"])
-                ]
-            )
+    for cota in colunas_cotas:
 
-            saldo = vagas - ocupadas
+        vagas = int(vagas_pactuadas.get(cota, 0))
 
-            resumo_list.append({
-                "Cota": cota,
-                "Ocupadas": ocupadas,
-                "Vagas": vagas,
-                "Saldo": saldo
-            })
-
-            total_ocupado += ocupadas
-
-        df_resumo = pd.DataFrame(resumo_list)
-
-        # -------------------------
-        # MÉTRICAS
-        # -------------------------
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.metric("Total de vagas", total_vagas)
-
-        with col2:
-            st.metric("Vagas ocupadas", total_ocupado)
-
-        with col3:
-            st.metric("Saldo de vagas", total_vagas - total_ocupado)
-
-        # -------------------------
-        # BARRA DE OCUPAÇÃO
-        # -------------------------
-
-        ocupacao = 0 if total_vagas == 0 else total_ocupado / total_vagas
-
-        st.progress(ocupacao)
-
-        st.caption(f"Ocupação: {round(ocupacao*100,1)}%")
-
-        if total_ocupado > total_vagas:
-            st.error(f"⚠️ {total_ocupado} ocupantes para {total_vagas} vagas")
-
-        st.markdown("---")
-
-        # -------------------------
-        # GRÁFICO
-        # -------------------------
-
-        st.subheader("Ocupação por cota")
-
-        chart = alt.Chart(df_resumo).mark_bar().encode(
-            x="Cota",
-            y="Ocupadas",
-            tooltip=["Cota","Ocupadas","Vagas"]
+        ocupadas = len(
+            df_final[
+                (df_final["Cota da vaga garantida"] == cota) &
+                (df_final["Ocupa Vaga"])
+            ]
         )
 
-        st.altair_chart(chart, use_container_width=True)
+        saldo = vagas - ocupadas
 
-        # -------------------------
-        # TABELA RESUMO
-        # -------------------------
+        resumo_list.append({
+            "Cota": cota,
+            "Ocupadas": ocupadas,
+            "Vagas": vagas,
+            "Saldo": saldo
+        })
 
-        st.subheader("Resumo por cota")
+        total_ocupado += ocupadas
 
-        st.dataframe(
-            df_resumo.set_index("Cota").T,
-            use_container_width=True
-        )
+    df_resumo = pd.DataFrame(resumo_list)
 
-        # -------------------------
-        # RANKING
-        # -------------------------
+    col1, col2, col3 = st.columns(3)
 
-        st.markdown("---")
+    with col1:
+        st.metric("Total de vagas", total_vagas)
 
-        df_final = df_final.reset_index(drop=True)
-        df_final["Posição"] = df_final.index + 1
+    with col2:
+        st.metric("Vagas ocupadas", total_ocupado)
 
-        cols_view = [
-            "Posição",
+    with col3:
+        st.metric("Saldo", total_vagas - total_ocupado)
+
+    ocupacao = (total_ocupado / total_vagas) if total_vagas > 0 else 0
+
+    st.progress(min(ocupacao, 1))
+
+    if total_ocupado > total_vagas:
+        st.warning(f"Excedente de {total_ocupado - total_vagas} matrículas.")
+
+    st.markdown("---")
+
+    st.subheader("Ocupação por cota")
+
+    chart = alt.Chart(df_resumo).mark_bar().encode(
+        x="Cota",
+        y="Ocupadas",
+        tooltip=["Cota", "Ocupadas", "Vagas"]
+    )
+
+    st.altair_chart(chart, use_container_width=True)
+
+    st.subheader("Resumo de vagas")
+
+    st.dataframe(
+        df_resumo.set_index("Cota").T,
+        use_container_width=True
+    )
+
+    st.markdown("---")
+
+    abas = ["Ranking Geral"] + colunas_cotas
+
+    tabs = st.tabs(abas)
+
+    with tabs[0]:
+
+        cols = [
+            "Ranking Geral",
             "Inscrição",
             "Nome",
             "Nota final",
-            "Cota do candidato",
-            "Processo seletivo",
+            "Cota da vaga garantida",
             "Status Exibição"
         ]
 
-        abas = ["Ranking Geral"] + colunas_cotas
+        st.dataframe(
+            df_final[cols].style.apply(color_vaga, axis=1),
+            use_container_width=True,
+            hide_index=True
+        )
 
-        tabs = st.tabs(abas)
+    for i, cota in enumerate(colunas_cotas, start=1):
 
-        with tabs[0]:
+        with tabs[i]:
+
+            df_cota = df_final[df_final["Cota do candidato"] == cota]
+
+            cols = [
+                "Ranking Cota",
+                "Inscrição",
+                "Nome",
+                "Nota final",
+                "Cota do candidato",
+                "Cota da vaga garantida",
+                "Status Exibição"
+            ]
 
             st.dataframe(
-                df_final[cols_view].style.applymap(
-                    color_status,
-                    subset=["Status Exibição"]
-                ),
+                df_cota[cols].style.apply(color_vaga, axis=1),
                 use_container_width=True,
                 hide_index=True
             )
-
-        for i, cota in enumerate(colunas_cotas, start=1):
-
-            with tabs[i]:
-
-                df_cota = df_final[df_final["Cota do candidato"] == cota]
-
-                st.dataframe(
-                    df_cota[cols_view].style.applymap(
-                        color_status,
-                        subset=["Status Exibição"]
-                    ),
-                    use_container_width=True,
-                    hide_index=True
-                )
 
 
 if __name__ == "__main__":
