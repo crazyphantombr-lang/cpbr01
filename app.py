@@ -9,12 +9,15 @@ st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
 MAPA_STATUS_FIXO = {
     "Etapa 2 concluída": "🟢 Matriculado",
     "Etapa 1 concluída": "🔵 Etapa 1 concluída",
-    "Desistiu da vaga": "🔴 Matrícula cancelada",
+    "Desistiu da vaga": "🔴 Desistiu da vaga",
     "Matrícula cancelada": "🔴 Matrícula cancelada",
-    "Indeferido": "🔴 Matrícula cancelada",
+    "Indeferido": "🔴 Indeferido",
+    "Não compareceu": "🔴 Não compareceu",
     "Enviou documentação": "🟡 Em processo",
     "Enviou recurso": "🟡 Em processo",
     "Enviar recurso": "🟡 Em processo",
+    "Enviar substituição de documentos": "🟡 Em processo",
+    "Convocado": "🟡 Em processo",
     "Aguardando vaga": "⚪ Aguardando vaga"
 }
 
