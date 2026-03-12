@@ -70,8 +70,13 @@ def processar_candidatos(df):
 
 def color_vaga(row):
 
+    status = row.get("Status Exibição", "")
     cota_vaga = row.get("Cota da vaga garantida", None)
     cota_candidato = row.get("Cota do candidato", None)
+
+    # não destacar quem não ocupa vaga
+    if "cancelada" in status.lower() or "compareceu" in status.lower():
+        return [""] * len(row)
 
     if cota_vaga == "AC":
         return ["background-color:#dbeafe"] * len(row)
