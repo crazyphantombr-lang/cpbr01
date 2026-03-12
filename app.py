@@ -1,18 +1,4 @@
-Código completo atualizado com:
-
-* **“Em processo” não ocupa vaga**
-* **Apenas “Matriculado” ocupa vaga**
-* **Resumo geral aparece antes de selecionar curso**
-* **Resumo geral mostra Matriculados e Em processo**
-* **Resumo por curso automático**
-* **Ranking geral e ranking por cota**
-* **Destaque verde apenas para quem realmente usa vaga da cota**
-* **Suporte a excedente de vagas**
-
-Aplicação em Streamlit.
-
-```python
-# Versão: 2.3
+# Versão: 2.4
 
 import streamlit as st
 import pandas as pd
@@ -35,7 +21,6 @@ MAPA_STATUS_FIXO = {
     "Aguardando vaga": "⚪ Aguardando vaga"
 }
 
-
 def determinar_status(row):
 
     status_orig = str(row["Situação do requerimento de matrícula"]).strip()
@@ -44,7 +29,7 @@ def determinar_status(row):
     if status_orig in MAPA_STATUS_FIXO:
         return MAPA_STATUS_FIXO[status_orig]
 
-    if pd.isna(row["Situação do requerimento de matrícula"]) or status_orig.lower() in ["nan", ""]:
+    if pd.isna(row["Situação do requerimento de matrícula"]) or status_orig.lower() in ["nan",""]:
         return "🔴 Não compareceu" if convocacoes > 0 else "⚪ Lista de espera"
 
     return "⚪ Aguardando vaga"
@@ -80,7 +65,7 @@ def color_vaga(row):
     if "cancelada" in status.lower() or "compareceu" in status.lower():
         return [""] * len(row)
 
-    if cota_candidato is not None and cota_vaga == cota_candidato and status == "🟢 Matriculado":
+    if status == "🟢 Matriculado" and cota_vaga == cota_candidato:
         return ["background-color:#dcfce7"] * len(row)
 
     return [""] * len(row)
@@ -173,7 +158,6 @@ def main():
             )
 
         else:
-
             proc_sel = None
 
     if curso_sel == "-- Selecione --":
@@ -201,6 +185,10 @@ def main():
         "LI_EP","LI_PCD","LI_PPI","LI_Q"
     ]
 
+    # -------------------------
+    # VAGAS
+    # -------------------------
+
     if proc_sel == "Todos":
 
         vagas_pactuadas = df_vagas_raw[
@@ -215,7 +203,6 @@ def main():
         ][colunas_cotas].sum().to_dict()
 
     resumo_list = []
-
     total_ocupado = 0
     total_vagas = sum(vagas_pactuadas.values())
 
@@ -265,12 +252,10 @@ def main():
 
     st.markdown("---")
 
-    st.subheader("Ocupação por cota")
-
     chart = alt.Chart(df_resumo).mark_bar().encode(
         x="Cota",
         y="Ocupadas",
-        tooltip=["Cota", "Ocupadas", "Vagas"]
+        tooltip=["Cota","Ocupadas","Vagas"]
     )
 
     st.altair_chart(chart, use_container_width=True)
@@ -283,25 +268,44 @@ def main():
     st.markdown("---")
 
     abas = ["Ranking Geral"] + colunas_cotas
-
     tabs = st.tabs(abas)
+
+    # -------------------------
+    # RANKING GERAL
+    # -------------------------
 
     with tabs[0]:
 
-        cols = [
-            "Ranking Geral",
-            "Inscrição",
-            "Nome",
-            "Nota final",
-            "Cota da vaga garantida",
-            "Status Exibição"
-        ]
+        if proc_sel == "Todos":
+
+            cols = [
+                "Inscrição",
+                "Nome",
+                "Nota final",
+                "Cota da vaga garantida",
+                "Status Exibição"
+            ]
+
+        else:
+
+            cols = [
+                "Ranking Geral",
+                "Inscrição",
+                "Nome",
+                "Nota final",
+                "Cota da vaga garantida",
+                "Status Exibição"
+            ]
 
         st.dataframe(
             df_final[cols].style.apply(color_vaga, axis=1),
             use_container_width=True,
             hide_index=True
         )
+
+    # -------------------------
+    # ABAS DE COTA
+    # -------------------------
 
     for i, cota in enumerate(colunas_cotas, start=1):
 
@@ -315,15 +319,28 @@ def main():
 
             df_cota = df_final[df_final["Cota do candidato"] == cota]
 
-            cols = [
-                "Ranking Cota",
-                "Inscrição",
-                "Nome",
-                "Nota final",
-                "Cota do candidato",
-                "Cota da vaga garantida",
-                "Status Exibição"
-            ]
+            if proc_sel == "Todos":
+
+                cols = [
+                    "Inscrição",
+                    "Nome",
+                    "Nota final",
+                    "Cota do candidato",
+                    "Cota da vaga garantida",
+                    "Status Exibição"
+                ]
+
+            else:
+
+                cols = [
+                    "Ranking Cota",
+                    "Inscrição",
+                    "Nome",
+                    "Nota final",
+                    "Cota do candidato",
+                    "Cota da vaga garantida",
+                    "Status Exibição"
+                ]
 
             st.dataframe(
                 df_cota[cols].style.apply(color_vaga, axis=1),
@@ -334,4 +351,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
