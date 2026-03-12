@@ -150,6 +150,16 @@ def main():
 
     df_final = df_final.sort_values("Nota final", ascending=False)
 
+    df_final = df_final.reset_index(drop=True)
+
+    df_final["Ranking Geral"] = df_final.index + 1
+
+    df_final["Ranking Cota"] = (
+    df_final.groupby("Cota do candidato")["Nota final"]
+    .rank(method="first", ascending=False)
+    .astype(int)
+)
+
     colunas_cotas = [
         "AC","LB_EP","LB_PCD","LB_PPI","LB_Q",
         "LI_EP","LI_PCD","LI_PPI","LI_Q"
