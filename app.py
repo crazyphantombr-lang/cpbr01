@@ -1,8 +1,7 @@
-# Versão: 2.4
+# Versão 3.0
 
 import streamlit as st
 import pandas as pd
-import altair as alt
 
 st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
 
@@ -43,7 +42,9 @@ def processar_candidatos(df):
     df["Processo seletivo"] = df["Processo seletivo"].fillna("Geral").astype(str).str.strip()
 
     df["Cota do candidato"] = df["Cota do candidato"].fillna("AC").astype(str).str.strip()
-    df["Cota da vaga garantida"] = df["Cota da vaga garantida"].fillna("AC").astype(str).str.strip()
+
+    df["Cota da vaga garantida"] = df["Cota da vaga garantida"].astype(str).str.strip()
+    df.loc[df["Cota da vaga garantida"].isin(["", "nan"]), "Cota da vaga garantida"] = ""
 
     df["Nota final"] = pd.to_numeric(df["Nota final"], errors="coerce").fillna(0)
     df["Nº de convocações"] = pd.to_numeric(df["Nº de convocações"], errors="coerce").fillna(0)
@@ -65,10 +66,23 @@ def color_vaga(row):
     if "cancelada" in status.lower() or "compareceu" in status.lower():
         return [""] * len(row)
 
-    if status == "🟢 Matriculado" and cota_vaga == cota_candidato:
+    if status == "🟢 Matriculado" and cota_vaga == cota_candidato and cota_vaga != "":
         return ["background-color:#dcfce7"] * len(row)
 
     return [""] * len(row)
+
+
+def centralizar_tabela(df, coluna_nome="Nome"):
+
+    estilos = []
+    for col in df.columns:
+        if col == coluna_nome:
+            estilos.append({"selector": f"th.col_heading.level0.col{df.columns.get_loc(col)}",
+                            "props": [("text-align", "left")]})
+        else:
+            estilos.append({"selector": f"th.col_heading.level0.col{df.columns.get_loc(col)}",
+                            "props": [("text-align", "center")]})
+    return df
 
 
 def main():
@@ -100,10 +114,6 @@ def main():
 
     df_candidatos = processar_candidatos(df_candidatos_raw)
 
-    # -------------------------
-    # RESUMO GERAL
-    # -------------------------
-
     st.subheader("Resumo geral")
 
     total_matriculados = (df_candidatos["Status Exibição"] == "🟢 Matriculado").sum()
@@ -130,10 +140,6 @@ def main():
     st.dataframe(resumo_cursos, use_container_width=True)
 
     st.markdown("---")
-
-    # -------------------------
-    # FILTROS
-    # -------------------------
 
     with st.sidebar:
 
@@ -166,11 +172,12 @@ def main():
     df_curso_cand = df_candidatos[df_candidatos["Curso"] == curso_sel]
 
     if proc_sel == "Todos":
-        df_final = df_curso_cand
+        df_final = df_curso_cand.sort_values("Nome")
     else:
-        df_final = df_curso_cand[df_curso_cand["Processo seletivo"] == proc_sel]
+        df_final = df_curso_cand[df_curso_cand["Processo seletivo"] == proc_sel] \
+            .sort_values("Nota final", ascending=False)
 
-    df_final = df_final.sort_values("Nota final", ascending=False).reset_index(drop=True)
+    df_final = df_final.reset_index(drop=True)
 
     df_final["Ranking Geral"] = df_final.index + 1
 
@@ -184,10 +191,6 @@ def main():
         "AC","LB_EP","LB_PCD","LB_PPI","LB_Q",
         "LI_EP","LI_PCD","LI_PPI","LI_Q"
     ]
-
-    # -------------------------
-    # VAGAS
-    # -------------------------
 
     if proc_sel == "Todos":
 
@@ -220,7 +223,7 @@ def main():
         saldo = vagas - ocupadas
 
         resumo_list.append({
-            "Cota": cota,
+            "Modalidade": cota,
             "Ocupadas": ocupadas,
             "Vagas": vagas,
             "Saldo": saldo
@@ -243,50 +246,45 @@ def main():
     with col3:
         st.metric("Saldo", total_vagas - total_ocupado)
 
-    ocupacao = (total_ocupado / total_vagas) if total_vagas > 0 else 0
-
-    st.progress(min(ocupacao, 1))
-
     if total_ocupado > total_vagas:
         st.warning(f"Excedente de {total_ocupado - total_vagas} matrículas.")
 
-    st.markdown("---")
-
-    chart = alt.Chart(df_resumo).mark_bar().encode(
-        x="Cota",
-        y="Ocupadas",
-        tooltip=["Cota","Ocupadas","Vagas"]
-    )
-
-    st.altair_chart(chart, use_container_width=True)
+    st.subheader("Distribuição de vagas por modalidade")
 
     st.dataframe(
-        df_resumo.set_index("Cota").T,
+        df_resumo.set_index("Modalidade").T,
         use_container_width=True
     )
 
     st.markdown("---")
 
-    abas = ["Ranking Geral"] + colunas_cotas
+    abas = ["Lista de candidatos"] + colunas_cotas
     tabs = st.tabs(abas)
-
-    # -------------------------
-    # RANKING GERAL
-    # -------------------------
 
     with tabs[0]:
 
         if proc_sel == "Todos":
 
+            st.info(
+                "Lista de todos os candidatos de todos os processos seletivos neste curso. "
+                "A listagem é apresentada em ordem alfabética e não representa classificação."
+            )
+
             cols = [
                 "Inscrição",
                 "Nome",
+                "Processo seletivo",
                 "Nota final",
                 "Cota da vaga garantida",
                 "Status Exibição"
             ]
 
         else:
+
+            st.info(
+                f"Lista de todos os candidatos do processo seletivo '{proc_sel}' neste curso, "
+                "em ordem de classificação."
+            )
 
             cols = [
                 "Ranking Geral",
@@ -297,15 +295,15 @@ def main():
                 "Status Exibição"
             ]
 
+        df_show = df_final[cols].rename(
+            columns={"Cota da vaga garantida": "Tipo de vaga utilizada"}
+        )
+
         st.dataframe(
-            df_final[cols].style.apply(color_vaga, axis=1),
+            df_show.style.apply(color_vaga, axis=1),
             use_container_width=True,
             hide_index=True
         )
-
-    # -------------------------
-    # ABAS DE COTA
-    # -------------------------
 
     for i, cota in enumerate(colunas_cotas, start=1):
 
@@ -342,8 +340,12 @@ def main():
                     "Status Exibição"
                 ]
 
+            df_show = df_cota[cols].rename(
+                columns={"Cota da vaga garantida": "Tipo de vaga utilizada"}
+            )
+
             st.dataframe(
-                df_cota[cols].style.apply(color_vaga, axis=1),
+                df_show.style.apply(color_vaga, axis=1),
                 use_container_width=True,
                 hide_index=True
             )
