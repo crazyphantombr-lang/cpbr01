@@ -34,6 +34,7 @@ STATUS_OCUPA_VAGA = [
 
 COTAS = ["AC","LB_EP","LB_PCD","LB_PPI","LB_Q","LI_EP","LI_PCD","LI_PPI","LI_Q"]
 
+
 def status_exibicao(row):
     s = str(row["Situação do requerimento de matrícula"]).strip()
     conv = row["Nº de convocações"]
@@ -45,6 +46,7 @@ def status_exibicao(row):
         return "🔴 Não compareceu" if conv > 0 else "⚪ Lista de espera"
 
     return "⚪ Aguardando vaga"
+
 
 def processar(df):
 
@@ -138,23 +140,14 @@ def main():
 
     df = processar(df_raw)
 
-    with st.sidebar:
-
-        ocultar_encerrados = st.checkbox(
-            "Ocultar candidatos com processo encerrado"
-        )
-
-    if ocultar_encerrados:
-        df_vis = df[~df["Status"].isin(STATUS_ENCERRADO)]
-    else:
-        df_vis = df.copy()
-
     cursos = sorted(df["Curso"].unique())
 
-    curso_sel = st.selectbox(
-        "Curso",
-        ["-- Selecionar --"] + cursos
-    )
+    with st.sidebar:
+
+        curso_sel = st.selectbox(
+            "Curso",
+            ["-- Selecionar --"] + cursos
+        )
 
     if curso_sel == "-- Selecionar --":
 
@@ -179,14 +172,27 @@ def main():
         return
 
     df_curso = df[df["Curso"]==curso_sel]
-    df_curso_vis = df_vis[df_vis["Curso"]==curso_sel]
 
     processos = sorted(df_curso["Processo seletivo"].unique())
 
-    proc_sel = st.selectbox(
-        "Processo seletivo",
-        ["Todos"] + processos
-    )
+    with st.sidebar:
+
+        proc_sel = st.selectbox(
+            "Processo seletivo",
+            ["Todos"] + processos
+        )
+
+        ocultar_encerrados = st.checkbox(
+            "Ocultar candidatos com processo encerrado"
+        )
+
+    if ocultar_encerrados:
+        df_vis = df[~df["Status"].isin(STATUS_ENCERRADO)]
+    else:
+        df_vis = df.copy()
+
+    df_curso = df[df["Curso"]==curso_sel]
+    df_curso_vis = df_vis[df_vis["Curso"]==curso_sel]
 
     if proc_sel != "Todos":
         df_curso = df_curso[df_curso["Processo seletivo"]==proc_sel]
@@ -228,8 +234,11 @@ def main():
 
     st.subheader("Distribuição de vagas por modalidade")
 
+    tabela_dist = centralizar(dist)
+    tabela_dist = tabela_dist.applymap(cor_saldo, subset=["Saldo"])
+
     st.dataframe(
-        centralizar(dist).applymap(cor_saldo, subset=["Saldo"]),
+        tabela_dist,
         use_container_width=True
     )
 
@@ -255,12 +264,19 @@ def main():
             "Status"
         ]
 
-        df_lista = df_lista.rename(columns={
-            "Cota da vaga garantida":"Tipo de vaga utilizada"
-        })
+        df_view = df_lista[cols].copy()
+
+        df_view.columns = [
+            "Inscrição",
+            "Nome",
+            "Nota final",
+            "Cota do candidato",
+            "Tipo de vaga utilizada",
+            "Status"
+        ]
 
         st.dataframe(
-            centralizar_exceto_nome(df_lista[cols]),
+            centralizar_exceto_nome(df_view),
             use_container_width=True,
             hide_index=True
         )
@@ -292,12 +308,20 @@ def main():
             "Status"
         ]
 
-        df_lista = df_lista.rename(columns={
-            "Cota da vaga garantida":"Tipo de vaga utilizada"
-        })
+        df_view = df_lista[cols].copy()
+
+        df_view.columns = [
+            "Ranking geral",
+            "Inscrição",
+            "Nome",
+            "Nota final",
+            "Cota do candidato",
+            "Tipo de vaga utilizada",
+            "Status"
+        ]
 
         st.dataframe(
-            centralizar_exceto_nome(df_lista[cols]),
+            centralizar_exceto_nome(df_view),
             use_container_width=True,
             hide_index=True
         )
@@ -327,12 +351,20 @@ def main():
                 "Status"
             ]
 
-            df_cota = df_cota.rename(columns={
-                "Cota da vaga garantida":"Tipo de vaga utilizada"
-            })
+            df_view = df_cota[cols].copy()
+
+            df_view.columns = [
+                "Ranking cota",
+                "Inscrição",
+                "Nome",
+                "Nota final",
+                "Cota do candidato",
+                "Tipo de vaga utilizada",
+                "Status"
+            ]
 
             st.dataframe(
-                centralizar_exceto_nome(df_cota[cols]),
+                centralizar_exceto_nome(df_view),
                 use_container_width=True,
                 hide_index=True
             )
