@@ -5,6 +5,7 @@ import pandas as pd
 st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
 
 # Estilização CSS Customizada para melhorar a UI
+# CORREÇÃO: Alterado 'unsafe_loader' para 'unsafe_allow_html'
 st.markdown("""
     <style>
     .main {
@@ -21,7 +22,7 @@ st.markdown("""
         box-shadow: none !important;
     }
     </style>
-    """, unsafe_loader=True)
+    """, unsafe_allow_html=True)
 
 # --- CONFIGURAÇÕES E MAPEAMENTOS ---
 MAPA_STATUS = {
@@ -149,9 +150,9 @@ def render_detalhe_curso(df, df_vagas, curso_sel):
     m1, m2, m3, m4 = st.columns(4)
     total_v = vagas_totais.sum()
     total_o = sum(ocupadas.values())
-    m1.metric("Vagas Ofertadas", total_v)
-    m2.metric("Vagas Ocupadas", total_o)
-    m3.metric("Vagas Restantes", total_v - total_o, delta_color="normal")
+    m1.metric("Vagas Ofertadas", int(total_v))
+    m2.metric("Vagas Ocupadas", int(total_o))
+    m3.metric("Vagas Restantes", int(total_v - total_o), delta_color="normal")
     m4.metric("% Ocupação", f"{(total_o/total_v*100):.1f}%" if total_v > 0 else "0%")
 
     # --- UI: PROGRESSO POR COTA ---
@@ -162,7 +163,7 @@ def render_detalhe_curso(df, df_vagas, curso_sel):
             v = vagas_totais[c]
             o = ocupadas[c]
             progresso = min(o/v, 1.0) if v > 0 else 0.0
-            st.write(f"**{c}** ({o}/{v})")
+            st.write(f"**{c}** ({int(o)}/{int(v)})")
             st.progress(progresso)
 
     # --- UI: TABELA DE CANDIDATOS ---
