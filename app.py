@@ -2,14 +2,13 @@ import streamlit as st
 import pandas as pd
 import re
 
-VERSAO = "v5.3"
+VERSAO = "v5.4"
 
 st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
 
 st.markdown("""
 <style>
 .main {background-color:#f8f9fa;}
-
 .section-title{
 font-weight:700;
 color:#1f77b4;
@@ -30,7 +29,6 @@ MAPA_STATUS = {
 "Enviou recurso":"🟡 Em processo",
 "Enviar recurso":"🟡 Em processo",
 "Convocado":"🟡 Em processo",
-"Enviar substituição de documentos":"🟡 Em processo",
 "Aguardando vaga":"⚪ Aguardando vaga"
 }
 
@@ -45,6 +43,15 @@ STATUS_OCUPA_VAGA=[
 "🟢 Matriculado",
 "🔵 Etapa 1 concluída"
 ]
+
+STATUS_FILA=[
+"🟢 Matriculado",
+"🔵 Etapa 1 concluída",
+"🟡 Em processo",
+"⚪ Aguardando vaga"
+]
+
+COTAS=["AC","LB_EP","LB_PCD","LB_PPI","LB_Q","LI_EP","LI_PCD","LI_PPI","LI_Q"]
 
 
 def extrair_chamada(txt):
@@ -75,10 +82,10 @@ def chamada_encerrada(df):
 
         atual=g["Chamada detectada"].max()
 
-        enc=(g[
+        enc=g[
             (g["Chamada detectada"]==atual) &
             (g["Situação do requerimento de matrícula"]=="Etapa 2 concluída")
-        ])
+        ]
 
         res[proc]=len(enc)>0
 
@@ -121,6 +128,8 @@ def processar(df):
 
     df["Nota final"]=pd.to_numeric(df["Nota final"],errors="coerce").fillna(0)
 
+    df["Ranking"]=pd.to_numeric(df["Class ACP1"],errors="coerce")
+
     df["Chamada detectada"]=df["Chamadas"].apply(extrair_chamada)
 
     chamada_atual=detectar_chamada_atual(df)
@@ -132,12 +141,6 @@ def processar(df):
     )
 
     df["Ocupa vaga"]=df["Status"].isin(STATUS_OCUPA_VAGA)
-
-    df["Ranking geral"]=df.groupby(
-        ["Curso","Processo seletivo"]
-    )["Nota final"].rank(
-        method="first",ascending=False
-    ).astype(int)
 
     return df,chamada_atual,chamada_fechada
 
@@ -170,22 +173,50 @@ def style_df(df):
     return sty
 
 
-def resumo_chamadas(df,chamada_atual,chamada_fechada):
+def simulacao_chamada(df,df_vagas,curso):
 
-    st.markdown("### Situação das chamadas")
+    st.markdown("### 🔮 Simulação de próxima chamada")
+
+    vagas=df_vagas[df_vagas["Curso"]==curso]
+
+    if vagas.empty:
+        st.info("Sem dados de vagas")
+        return
+
+    vagas=vagas.iloc[0]
 
     dados=[]
 
-    for proc in sorted(df["Processo seletivo"].unique()):
+    for cota in COTAS:
 
-        atual=chamada_atual.get(proc,0)
+        vagas_cota=int(vagas.get(cota,0))
 
-        sit="🟢 Encerrada" if chamada_fechada.get(proc) else "🟡 Em andamento"
+        df_cota=df[df["Cota do candidato"]==cota]
+
+        fila=df_cota[df_cota["Status"].isin(STATUS_FILA)]
+
+        ocupacao=len(fila)
+
+        vagas_ociosas=max(vagas_cota-ocupacao,0)
+
+        candidatos_fila=df_cota[df_cota["Status"]=="⚪ Lista de espera"]
+
+        if vagas_cota>0 and candidatos_fila.empty:
+
+            situacao="⚠ VAGA EXCEDENTE NA COTA! SERÁ REMANEJADA"
+
+        else:
+
+            conv=int(vagas_ociosas*3)
+
+            situacao=f"Convocar aprox. {conv}"
 
         dados.append({
-            "Processo seletivo":proc,
-            "Chamada atual":f"{atual}ª",
-            "Situação":sit
+            "Cota":cota,
+            "Vagas":vagas_cota,
+            "Fila atual":ocupacao,
+            "Vagas ociosas":vagas_ociosas,
+            "Situação":situacao
         })
 
     tabela=pd.DataFrame(dados)
@@ -199,7 +230,6 @@ def render_busca(df):
 
     df=df.rename(columns={
         "Processo seletivo":"Processo",
-        "Ranking geral":"Ranking",
         "Nota final":"Nota",
         "Cota do candidato":"Cota",
         "Cota da vaga garantida":"Vaga ocupada"
@@ -271,9 +301,7 @@ def main():
         )
 
     if curso_sel=="-- Todos os Cursos --":
-
-        resumo_chamadas(df,chamada_atual,chamada_fechada)
-
+        st.info("Selecione um curso para visualizar detalhes.")
         return
 
     df=df[df["Curso"]==curso_sel]
@@ -295,14 +323,14 @@ def main():
     if ocultar:
         df=df[~df["Status"].isin(STATUS_ENCERRADO)]
 
-    resumo_chamadas(df,chamada_atual,chamada_fechada)
+    simulacao_chamada(df,df_vagas,curso_sel)
 
     df=df.rename(columns={
         "Cota da vaga garantida":"Vaga ocupada"
     })
 
     cols=[
-    "Ranking geral",
+    "Ranking",
     "Inscrição",
     "Nome",
     "Nota final",
@@ -315,15 +343,14 @@ def main():
 
     if proc_sel=="Todos":
 
-        if "Ranking geral" in cols:
-            cols.remove("Ranking geral")
+        if "Ranking" in cols:
+            cols.remove("Ranking")
 
         df=df.sort_values("Nome")
 
     else:
 
-        if "Ranking geral" in df.columns:
-            df=df.sort_values("Ranking geral")
+        df=df.sort_values("Ranking")
 
     st.dataframe(
         style_df(df[cols]),
