@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 
-VERSAO = "v5.4"
+VERSAO = "v5.5"
 
 st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
 
@@ -37,18 +37,6 @@ STATUS_ENCERRADO=[
 "🔴 Matrícula cancelada",
 "🔴 Indeferido",
 "🔴 Não compareceu"
-]
-
-STATUS_OCUPA_VAGA=[
-"🟢 Matriculado",
-"🔵 Etapa 1 concluída"
-]
-
-STATUS_FILA=[
-"🟢 Matriculado",
-"🔵 Etapa 1 concluída",
-"🟡 Em processo",
-"⚪ Aguardando vaga"
 ]
 
 COTAS=["AC","LB_EP","LB_PCD","LB_PPI","LB_Q","LI_EP","LI_PCD","LI_PPI","LI_Q"]
@@ -140,8 +128,6 @@ def processar(df):
         lambda r:status_exibicao(r,chamada_atual,chamada_fechada),axis=1
     )
 
-    df["Ocupa vaga"]=df["Status"].isin(STATUS_OCUPA_VAGA)
-
     return df,chamada_atual,chamada_fechada
 
 
@@ -173,55 +159,12 @@ def style_df(df):
     return sty
 
 
-def simulacao_chamada(df,df_vagas,curso):
-
-    st.markdown("### 🔮 Simulação de próxima chamada")
-
-    vagas=df_vagas[df_vagas["Curso"]==curso]
-
-    if vagas.empty:
-        st.info("Sem dados de vagas")
-        return
-
-    vagas=vagas.iloc[0]
-
-    dados=[]
-
-    for cota in COTAS:
-
-        vagas_cota=int(vagas.get(cota,0))
-
-        df_cota=df[df["Cota do candidato"]==cota]
-
-        fila=df_cota[df_cota["Status"].isin(STATUS_FILA)]
-
-        ocupacao=len(fila)
-
-        vagas_ociosas=max(vagas_cota-ocupacao,0)
-
-        candidatos_fila=df_cota[df_cota["Status"]=="⚪ Lista de espera"]
-
-        if vagas_cota>0 and candidatos_fila.empty:
-
-            situacao="⚠ VAGA EXCEDENTE NA COTA! SERÁ REMANEJADA"
-
-        else:
-
-            conv=int(vagas_ociosas*3)
-
-            situacao=f"Convocar aprox. {conv}"
-
-        dados.append({
-            "Cota":cota,
-            "Vagas":vagas_cota,
-            "Fila atual":ocupacao,
-            "Vagas ociosas":vagas_ociosas,
-            "Situação":situacao
-        })
-
-    tabela=pd.DataFrame(dados)
-
-    st.dataframe(tabela,use_container_width=True,hide_index=True)
+# ------------------------------------------------------
+# SIMULAÇÃO DE CHAMADA (DESATIVADA POR ENQUANTO)
+# ------------------------------------------------------
+# def simulacao_chamada(...):
+#     código mantido para uso futuro
+# ------------------------------------------------------
 
 
 def render_busca(df):
@@ -276,7 +219,6 @@ def main():
         st.stop()
 
     df_raw=pd.read_excel(arquivo,sheet_name="ranking")
-
     df_vagas=pd.read_excel(arquivo,sheet_name="vagas")
 
     df,chamada_atual,chamada_fechada=processar(df_raw)
@@ -315,6 +257,11 @@ def main():
             ["Todos"]+processos
         )
 
+        cota_sel=st.selectbox(
+            "Cota",
+            ["Todas"]+COTAS
+        )
+
         ocultar=st.checkbox("Ocultar candidatos com processo encerrado")
 
     if proc_sel!="Todos":
@@ -323,11 +270,37 @@ def main():
     if ocultar:
         df=df[~df["Status"].isin(STATUS_ENCERRADO)]
 
-    simulacao_chamada(df,df_vagas,curso_sel)
-
     df=df.rename(columns={
         "Cota da vaga garantida":"Vaga ocupada"
     })
+
+    if cota_sel!="Todas":
+
+        st.info(f"Lista de candidatos da modalidade {cota_sel}, ordenados por ranking dentro da cota.")
+
+        df_cota=df[df["Cota do candidato"]==cota_sel].copy()
+
+        df_cota=df_cota.sort_values("Ranking")
+
+        df_cota["Ranking Cota"]=range(1,len(df_cota)+1)
+
+        cols=[
+        "Ranking Cota",
+        "Ranking",
+        "Nome",
+        "Nota final",
+        "Status"
+        ]
+
+        cols=[c for c in cols if c in df_cota.columns]
+
+        st.dataframe(
+            style_df(df_cota[cols]),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        return
 
     cols=[
     "Ranking",
