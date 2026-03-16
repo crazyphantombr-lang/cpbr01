@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 
-VERSAO = "5.10.0"
+VERSAO = "5.10.1"
 
 st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
 
@@ -155,7 +155,6 @@ def style_df(df):
     sty = df.style.apply(cor, axis=1).set_properties(**{"text-align": "center"})
     if "Nome" in df.columns: sty = sty.set_properties(subset=["Nome"], **{"text-align": "left"})
     
-    # Formatando números para evitar casas decimais desnecessárias
     format_dict = {}
     if "Ranking" in df.columns: format_dict["Ranking"] = "{:.0f}"
     if "Ranking Cota" in df.columns: format_dict["Ranking Cota"] = "{:.0f}"
@@ -284,113 +283,93 @@ def main():
         resumo_geral(df, chamada_atual, chamada_fechada, df_crono)
         return
 
-    # Filtra os candidatos pelo curso selecionado
-    df = df[df["Curso"] == st.session_state.curso]
+    # Visão unificada do Curso
+    df_curso = df[df["Curso"] == st.session_state.curso]
+    
+    if st.session_state.processo != "Todos":
+        df_view = df_curso[df_curso["Processo seletivo"] == st.session_state.processo]
+        processos_view = [st.session_state.processo]
+    else:
+        df_view = df_curso
+        processos_view = df_curso["Processo seletivo"].unique()
 
-    # --- NOVO: VISÃO GERAL DO CURSO (Quando Processo = "Todos") ---
-    if st.session_state.processo == "Todos":
-        st.markdown(f"## 📊 Visão Geral: {st.session_state.curso}")
+    st.markdown(f"## 📊 Visão Geral: {st.session_state.curso}")
+    
+    # 1. Cartões de Métricas Locais (Reativos ao Processo)
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Candidatos", len(df_view))
+    c2.metric("Matriculados", len(df_view[df_view["Status"] == "🟢 Matriculado"]))
+    c3.metric("Em processo", len(df_view[df_view["Status"] == "🟡 Em processo"]))
+    c4.metric("Convocados", len(df_view[df_view["Status"] == "🟡 Convocado"]))
+    c5.metric("Lista de espera", len(df_view[df_view["Status"] == "⚪ Lista de espera"]))
+    
+    st.divider()
+    
+    # 2. Quadro Consolidado de Vagas (Reativo ao Processo e Cota)
+    st.markdown("### 🎯 Quadro Consolidado de Vagas")
+    df_vagas_curso = df_vagas[df_vagas["Curso"] == st.session_state.curso]
+    
+    dados_vagas = []
+    
+    for proc in processos_view:
+        df_vagas_proc = df_vagas_curso[df_vagas_curso["Processo seletivo"] == proc]
+        df_mat_proc = df_curso[(df_curso["Processo seletivo"] == proc) & (df_curso["Status"] == "🟢 Matriculado")]
         
-        # 1. Cartões de Métricas Locais
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Candidatos", len(df))
-        c2.metric("Matriculados", len(df[df["Status"] == "🟢 Matriculado"]))
-        c3.metric("Em processo", len(df[df["Status"] == "🟡 Em processo"]))
-        c4.metric("Convocados", len(df[df["Status"] == "🟡 Convocado"]))
-        c5.metric("Lista de espera", len(df[df["Status"] == "⚪ Lista de espera"]))
-        
-        st.divider()
-        
-        # 2. Quadro Consolidado de Vagas (Responsivo à Cota)
-        st.markdown("### 🎯 Quadro Consolidado de Vagas")
-        df_vagas_curso = df_vagas[df_vagas["Curso"] == st.session_state.curso]
-        
-        dados_vagas = []
-        processos_curso = df["Processo seletivo"].unique()
-        
-        for proc in processos_curso:
-            df_vagas_proc = df_vagas_curso[df_vagas_curso["Processo seletivo"] == proc]
-            df_mat_proc = df[(df["Processo seletivo"] == proc) & (df["Status"] == "🟢 Matriculado")]
+        if st.session_state.cota == "Todas":
+            v_ofertadas = df_vagas_proc[COTAS].sum().sum() if not df_vagas_proc.empty else 0
+            v_preenchidas = len(df_mat_proc)
+        else:
+            v_ofertadas = df_vagas_proc[st.session_state.cota].sum() if (not df_vagas_proc.empty and st.session_state.cota in df_vagas_proc.columns) else 0
+            v_preenchidas = len(df_mat_proc[df_mat_proc["Vaga ocupada"] == st.session_state.cota])
             
-            if st.session_state.cota == "Todas":
-                v_ofertadas = df_vagas_proc[COTAS].sum().sum() if not df_vagas_proc.empty else 0
-                v_preenchidas = len(df_mat_proc)
+        dados_vagas.append({
+            "Processo seletivo": proc,
+            "Vagas Ofertadas": int(v_ofertadas),
+            "Vagas Preenchidas": int(v_preenchidas),
+            "Saldo de Vagas": int(v_ofertadas - v_preenchidas)
+        })
+        
+    if dados_vagas:
+        st.dataframe(pd.DataFrame(dados_vagas), use_container_width=True, hide_index=True)
+        
+    # 3. Cronograma Local Inteligente (Reativo ao Processo)
+    st.markdown("### 📋 Cronograma Local")
+    if df_crono is not None and not df_crono.empty:
+        df_crono_local = df_crono.copy()
+        df_crono_local.columns = [c.lower().strip() for c in df_crono_local.columns]
+        dados_crono_local = []
+        
+        for proc in processos_view:
+            global_atual = chamada_atual.get(proc, 0)
+            if global_atual == 0: continue
+            
+            max_chamada_curso = df_curso[df_curso["Processo seletivo"] == proc]["Chamada"].max()
+            
+            if pd.isna(max_chamada_curso) or max_chamada_curso < global_atual:
+                fase = "⚪ Sem convocados na chamada atual"
             else:
-                v_ofertadas = df_vagas_proc[st.session_state.cota].sum() if (not df_vagas_proc.empty and st.session_state.cota in df_vagas_proc.columns) else 0
-                v_preenchidas = len(df_mat_proc[df_mat_proc["Vaga ocupada"] == st.session_state.cota])
-                
-            dados_vagas.append({
-                "Processo seletivo": proc,
-                "Vagas Ofertadas": int(v_ofertadas),
-                "Vagas Preenchidas": int(v_preenchidas),
-                "Saldo de Vagas": int(v_ofertadas - v_preenchidas)
+                group = df_crono_local[(df_crono_local['processo'].str.lower() == str(proc).lower()) & (df_crono_local['chamada'] == global_atual)]
+                if not group.empty:
+                    fase = get_active_phase(group)
+                else:
+                    fase = "⚪ Cronograma indisponível"
+                    
+            dados_crono_local.append({
+                "Processo seletivo": str(proc).title(),
+                "Chamada ativa (Global)": f"{global_atual}ª Chamada",
+                "Status do Curso": fase
             })
             
-        if dados_vagas:
-            st.dataframe(pd.DataFrame(dados_vagas), use_container_width=True, hide_index=True)
-            
-        # 3. Cronograma Local Inteligente
-        st.markdown("### 📋 Cronograma Local")
-        if df_crono is not None and not df_crono.empty:
-            df_crono_local = df_crono.copy()
-            df_crono_local.columns = [c.lower().strip() for c in df_crono_local.columns]
-            dados_crono_local = []
-            
-            for proc in processos_curso:
-                global_atual = chamada_atual.get(proc, 0)
-                if global_atual == 0: continue
-                
-                max_chamada_curso = df[df["Processo seletivo"] == proc]["Chamada"].max()
-                
-                if pd.isna(max_chamada_curso) or max_chamada_curso < global_atual:
-                    fase = "⚪ Sem convocados na chamada atual"
-                else:
-                    group = df_crono_local[(df_crono_local['processo'].str.lower() == str(proc).lower()) & (df_crono_local['chamada'] == global_atual)]
-                    if not group.empty:
-                        fase = get_active_phase(group)
-                    else:
-                        fase = "⚪ Cronograma indisponível"
-                        
-                dados_crono_local.append({
-                    "Processo seletivo": str(proc).title(),
-                    "Chamada ativa (Global)": f"{global_atual}ª Chamada",
-                    "Status do Curso": fase
-                })
-                
-            if dados_crono_local:
-                st.dataframe(pd.DataFrame(dados_crono_local).sort_values("Processo seletivo"), use_container_width=True, hide_index=True)
-        st.divider()
-
-    # --- VISÃO DO PROCESSO ISOLADO ---
-    if st.session_state.processo != "Todos":
-        st.markdown(f"### 🎯 Quadro de Vagas: {st.session_state.processo}")
-        
-        df_vagas_filtradas = df_vagas[(df_vagas["Curso"] == st.session_state.curso) & (df_vagas["Processo seletivo"] == st.session_state.processo)]
-        df_matriculados = df[(df["Processo seletivo"] == st.session_state.processo) & (df["Status"] == "🟢 Matriculado")]
-
-        if st.session_state.cota == "Todas":
-            vagas_ofertadas = df_vagas_filtradas[COTAS].sum().sum() if not df_vagas_filtradas.empty else 0
-            vagas_preenchidas = len(df_matriculados)
-        else:
-            vagas_ofertadas = df_vagas_filtradas[st.session_state.cota].sum() if st.session_state.cota in df_vagas_filtradas.columns else 0
-            vagas_preenchidas = len(df_matriculados[df_matriculados["Vaga ocupada"] == st.session_state.cota])
-
-        saldo = vagas_ofertadas - vagas_preenchidas
-
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Vagas Ofertadas", int(vagas_ofertadas))
-        c2.metric("Vagas Preenchidas", int(vagas_preenchidas))
-        c3.metric("Saldo de Vagas", int(saldo))
-        st.divider()
-
-        df = df[df["Processo seletivo"] == st.session_state.processo]
+        if dados_crono_local:
+            st.dataframe(pd.DataFrame(dados_crono_local).sort_values("Processo seletivo"), use_container_width=True, hide_index=True)
+    st.divider()
 
     # Aplicação dos filtros finais na tabela de candidatos
     if st.session_state.ocultar:
-        df = df[~df["Status"].isin(STATUS_ENCERRADO)]
+        df_view = df_view[~df_view["Status"].isin(STATUS_ENCERRADO)]
 
     if st.session_state.cota != "Todas":
-        df_cota = df[df["Cota do candidato"] == st.session_state.cota].copy()
+        df_cota = df_view[df_view["Cota do candidato"] == st.session_state.cota].copy()
         df_cota = df_cota.sort_values("Ranking")
         df_cota["Ranking Cota"] = range(1, len(df_cota) + 1)
 
@@ -401,16 +380,16 @@ def main():
         return
 
     cols = ["Ranking", "Inscrição", "Nome", "Nota final", "Chamada", "Cota do candidato", "Vaga ocupada", "Status"]
-    cols = [c for c in cols if c in df.columns]
+    cols = [c for c in cols if c in df_view.columns]
 
     if st.session_state.processo == "Todos":
         if "Ranking" in cols: cols.remove("Ranking")
-        df = df.sort_values("Nome")
+        df_view = df_view.sort_values("Nome")
     else:
-        df = df.sort_values("Ranking")
+        df_view = df_view.sort_values("Ranking")
 
     st.markdown("#### Lista de Candidatos")
-    st.dataframe(style_df(df[cols]), use_container_width=True, hide_index=True)
+    st.dataframe(style_df(df_view[cols]), use_container_width=True, hide_index=True)
 
 if __name__ == "__main__":
     main()
