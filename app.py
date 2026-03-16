@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 
-VERSAO = "v5.5"
+VERSAO = "v5.6"
 
 st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
 
@@ -29,7 +29,7 @@ MAPA_STATUS = {
 "Enviou recurso":"🟡 Em processo",
 "Enviar recurso":"🟡 Em processo",
 "Convocado":"🟡 Em processo",
-"Aguardando vaga":"⚪ Aguardando vaga"
+"Aguardando vaga":"🟡 Aguardando vaga"
 }
 
 STATUS_ENCERRADO=[
@@ -92,7 +92,7 @@ def status_exibicao(row,chamada_atual,chamada_fechada):
         return MAPA_STATUS[s]
 
     if chamada==0:
-        return "⚪ Lista de espera"
+        return "🟡 Aguardando vaga"
 
     atual=chamada_atual.get(proc,0)
 
@@ -138,7 +138,7 @@ def style_df(df):
         if row["Status"]=="🟢 Matriculado":
             return ["background-color:#e6ffed"]*len(row)
 
-        if row["Status"]=="🟡 Em processo":
+        if row["Status"] in ["🟡 Em processo","🟡 Aguardando vaga"]:
             return ["background-color:#fffbe6"]*len(row)
 
         if row["Status"]=="🟡 Convocado":
@@ -159,17 +159,39 @@ def style_df(df):
     return sty
 
 
-# ------------------------------------------------------
-# SIMULAÇÃO DE CHAMADA (DESATIVADA POR ENQUANTO)
-# ------------------------------------------------------
-# def simulacao_chamada(...):
-#     código mantido para uso futuro
-# ------------------------------------------------------
+def resumo_geral(df):
+
+    st.markdown("## 📊 Visão Geral")
+
+    total=len(df)
+
+    matriculados=len(df[df["Status"]=="🟢 Matriculado"])
+
+    processo=len(df[df["Status"]=="🟡 Em processo"])
+
+    aguardando=len(df[df["Status"]=="🟡 Aguardando vaga"])
+
+    convocados=len(df[df["Status"]=="🟡 Convocado"])
+
+    c1,c2,c3,c4,c5=st.columns(5)
+
+    c1.metric("Candidatos",total)
+    c2.metric("Matriculados",matriculados)
+    c3.metric("Em processo",processo)
+    c4.metric("Convocados",convocados)
+    c5.metric("Aguardando vaga",aguardando)
+
+    resumo=df.groupby("Curso").agg(
+        candidatos=("Nome","count"),
+        matriculados=("Status",lambda x:(x=="🟢 Matriculado").sum())
+    ).reset_index()
+
+    st.dataframe(resumo,use_container_width=True,hide_index=True)
 
 
 def render_busca(df):
 
-    st.markdown("## Resultado da busca")
+    st.markdown("## 🔎 Resultado da busca")
 
     df=df.rename(columns={
         "Processo seletivo":"Processo",
@@ -197,8 +219,7 @@ def render_busca(df):
 def main():
 
     st.title("Gestão de Processos Seletivos")
-
-    st.caption(f"Versão do painel: {VERSAO}")
+    st.caption(f"Versão {VERSAO}")
 
     with st.sidebar:
 
@@ -223,11 +244,13 @@ def main():
 
     df,chamada_atual,chamada_fechada=processar(df_raw)
 
+    resumo_geral(df)
+
     if busca_nome:
 
         df_busca=df[df["Nome"].str.contains(busca_nome,case=False,na=False)]
 
-        st.info(f"Resultados encontrados: {len(df_busca)} candidatos")
+        st.info(f"{len(df_busca)} candidatos encontrados")
 
         render_busca(df_busca)
 
@@ -243,7 +266,6 @@ def main():
         )
 
     if curso_sel=="-- Todos os Cursos --":
-        st.info("Selecione um curso para visualizar detalhes.")
         return
 
     df=df[df["Curso"]==curso_sel]
