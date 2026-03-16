@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 
-VERSAO = "v5.7"
+VERSAO = "v5.8"
 
 st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
 
@@ -45,7 +45,6 @@ def detectar_chamada_atual(df):
 
 
 def chamada_encerrada(df):
-
     res={}
     for proc,g in df.groupby("Processo seletivo"):
         atual=g["Chamada detectada"].max()
@@ -54,31 +53,26 @@ def chamada_encerrada(df):
             (g["Situação do requerimento de matrícula"]=="Etapa 2 concluída")
         ]
         res[proc]=len(enc)>0
-
     return res
 
 
 def status_exibicao(row,chamada_atual,chamada_fechada):
 
     s=str(row["Situação do requerimento de matrícula"]).strip()
-
     proc=row["Processo seletivo"]
     chamada=row["Chamada detectada"]
 
     if s in MAPA_STATUS:
         return MAPA_STATUS[s]
 
-    # CORREÇÃO v5.7
     if chamada==0:
         return "⚪ Lista de espera"
 
     atual=chamada_atual.get(proc,0)
 
     if chamada==atual:
-
         if chamada_fechada.get(proc,False):
             return "🔴 Não compareceu"
-
         return "🟡 Convocado"
 
     return "🟡 Aguardando vaga"
@@ -93,13 +87,10 @@ def processar(df):
             df[c]=df[c].fillna("").astype(str).str.strip()
 
     df["Nota final"]=pd.to_numeric(df["Nota final"],errors="coerce").fillna(0)
-
     df["Ranking"]=pd.to_numeric(df["Class ACP1"],errors="coerce")
-
     df["Chamada detectada"]=df["Chamadas"].apply(extrair_chamada)
 
     chamada_atual=detectar_chamada_atual(df)
-
     chamada_fechada=chamada_encerrada(df)
 
     df["Status"]=df.apply(
@@ -122,6 +113,9 @@ def style_df(df):
         if row["Status"]=="🟡 Convocado":
             return ["background-color:#e6f7ff"]*len(row)
 
+        if row["Status"]=="⚪ Lista de espera":
+            return ["background-color:#f5f5f5"]*len(row)
+
         if row["Status"] in STATUS_ENCERRADO:
             return ["background-color:#fff1f0"]*len(row)
 
@@ -143,7 +137,7 @@ def resumo_geral(df):
     total=len(df)
     matriculados=len(df[df["Status"]=="🟢 Matriculado"])
     processo=len(df[df["Status"]=="🟡 Em processo"])
-    aguardando=len(df[df["Status"]=="🟡 Aguardando vaga"])
+    lista_espera=len(df[df["Status"]=="⚪ Lista de espera"])
     convocados=len(df[df["Status"]=="🟡 Convocado"])
 
     c1,c2,c3,c4,c5=st.columns(5)
@@ -152,12 +146,22 @@ def resumo_geral(df):
     c2.metric("Matriculados",matriculados)
     c3.metric("Em processo",processo)
     c4.metric("Convocados",convocados)
-    c5.metric("Aguardando vaga",aguardando)
+    c5.metric("Lista de espera",lista_espera)
 
     resumo=df.groupby("Curso").agg(
-        candidatos=("Nome","count"),
-        matriculados=("Status",lambda x:(x=="🟢 Matriculado").sum())
+        Candidatos=("Nome","count"),
+        Matriculados=("Status",lambda x:(x=="🟢 Matriculado").sum()),
+        Aguardando_vaga=("Status",lambda x:(x=="🟡 Aguardando vaga").sum()),
+        Lista_de_espera=("Status",lambda x:(x=="⚪ Lista de espera").sum())
     ).reset_index()
+
+    resumo=resumo.rename(columns={
+        "Curso":"Curso",
+        "Candidatos":"Candidatos",
+        "Matriculados":"Matriculados",
+        "Aguardando_vaga":"Aguardando vaga",
+        "Lista_de_espera":"Lista de espera"
+    })
 
     st.dataframe(resumo,use_container_width=True,hide_index=True)
 
