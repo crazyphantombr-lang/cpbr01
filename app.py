@@ -91,8 +91,8 @@ def status_exibicao(row,chamada_atual,chamada_fechada):
     if s in MAPA_STATUS:
         return MAPA_STATUS[s]
 
-    if chamada==0:
-        return "🟡 Aguardando vaga"
+if chamada==0:
+    return "⚪ Lista de espera"
 
     atual=chamada_atual.get(proc,0)
 
