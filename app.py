@@ -2,11 +2,10 @@ import streamlit as st
 import pandas as pd
 import re
 
-VERSAO = "5.8.1"
+VERSAO = "5.8.2"
 
 st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
 
-# Removido "Convocado" do dicionário para que a lógica dinâmica atue corretamente
 MAPA_STATUS = {
     "Etapa 2 concluída":"🟢 Matriculado",
     "Etapa 1 concluída":"🔵 Etapa 1 concluída",
@@ -62,21 +61,28 @@ def status_exibicao(row, chamada_atual, chamada_fechada):
     proc = row["Processo seletivo"]
     chamada = row["Chamada detectada"]
 
+    # 1. Se o status vier explícito da planilha, respeita o mapa
     if s in MAPA_STATUS:
         return MAPA_STATUS[s]
 
+    # 2. Se não tem chamada associada, é lista de espera
     if chamada == 0:
         return "⚪ Lista de espera"
 
     atual = chamada_atual.get(proc, 0)
 
-    # Lógica corrigida: se o campo está vazio/não mapeado e é a chamada atual
+    # 3. Se for a chamada atual e estiver em branco, verifica se a chamada fechou
     if chamada == atual:
         if chamada_fechada.get(proc, False):
             return "🔴 Não compareceu"
         return "🟡 Convocado"
 
-    return "🟡 Aguardando vaga"
+    # 4. Se for uma chamada antiga que ficou em branco, perdeu o prazo
+    if chamada < atual:
+        return "🔴 Não compareceu"
+
+    # 5. Fallback de segurança para inconsistências residuais
+    return "⚪ Sem status"
 
 
 def processar(df):
@@ -108,7 +114,7 @@ def style_df(df):
             return ["background-color:#fffbe6"] * len(row)
         if row["Status"] == "🟡 Convocado":
             return ["background-color:#e6f7ff"] * len(row)
-        if row["Status"] == "⚪ Lista de espera":
+        if row["Status"] in ["⚪ Lista de espera", "⚪ Sem status"]:
             return ["background-color:#f5f5f5"] * len(row)
         if row["Status"] in STATUS_ENCERRADO:
             return ["background-color:#fff1f0"] * len(row)
