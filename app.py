@@ -2,13 +2,16 @@ import streamlit as st
 import pandas as pd
 import re
 
-VERSAO = "v5.0"
+VERSAO = "v5.1"
 
 st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
 
 st.markdown("""
 <style>
-.main {background-color:#f8f9fa;}
+
+.main {
+background-color:#f8f9fa;
+}
 
 .section-title{
 font-weight:700;
@@ -57,11 +60,15 @@ COTAS=[
 
 
 def extrair_chamada(txt):
+
     if pd.isna(txt):
         return 0
+
     nums=re.findall(r"(\d+)ª",str(txt))
+
     if not nums:
         return 0
+
     return max([int(n) for n in nums])
 
 
@@ -75,6 +82,7 @@ def detectar_chamada_atual(df):
 def chamada_encerrada(df):
 
     res={}
+
     for proc,g in df.groupby("Processo seletivo"):
 
         atual=g["Chamada detectada"].max()
@@ -168,7 +176,8 @@ def style_df(df):
 
     sty=sty.set_properties(**{"text-align":"center"})
 
-    sty=sty.set_properties(subset=["Nome"],**{"text-align":"left"})
+    if "Nome" in df.columns:
+        sty=sty.set_properties(subset=["Nome"],**{"text-align":"left"})
 
     return sty
 
@@ -196,26 +205,9 @@ def resumo_chamadas(df,chamada_atual,chamada_fechada):
     st.dataframe(tabela,use_container_width=True,hide_index=True)
 
 
-def render_resumo(df):
-
-    st.markdown("<h2 class='section-title'>Resumo Geral</h2>",unsafe_allow_html=True)
-
-    resumo=df.groupby("Curso").agg(
-        Matriculados=("Status",lambda x:(x=="🟢 Matriculado").sum()),
-        Em_processo=("Status",lambda x:(x=="🟡 Em processo").sum())
-    ).reset_index()
-
-    st.dataframe(resumo,use_container_width=True,hide_index=True)
-
-
 def render_lista(df,proc_sel):
 
     st.markdown("<h3 class='section-title'>Lista de candidatos</h3>",unsafe_allow_html=True)
-
-    busca=st.text_input("Buscar candidato")
-
-    if busca:
-        df=df[df["Nome"].str.contains(busca,case=False,na=False)]
 
     cols=[
         "Ranking geral",
@@ -227,28 +219,36 @@ def render_lista(df,proc_sel):
         "Status"
     ]
 
+    cols_existentes=[c for c in cols if c in df.columns]
+
     df=df.copy()
 
-    df.rename(columns={
-        "Cota da vaga garantida":"Vaga ocupada pelo candidato"
-    },inplace=True)
+    if "Cota da vaga garantida" in df.columns:
+        df.rename(columns={
+            "Cota da vaga garantida":"Vaga ocupada pelo candidato"
+        },inplace=True)
+
+        cols_existentes=[c if c!="Cota da vaga garantida" else "Vaga ocupada pelo candidato" for c in cols_existentes]
 
     if proc_sel=="Todos":
 
         st.info("Lista de todos os candidatos em ordem alfabética.")
 
-        df=df.sort_values("Nome")
+        if "Ranking geral" in cols_existentes:
+            cols_existentes.remove("Ranking geral")
 
-        cols.remove("Ranking geral")
+        if "Nome" in df.columns:
+            df=df.sort_values("Nome")
 
     else:
 
         st.info("Lista ordenada por classificação geral.")
 
-        df=df.sort_values("Ranking geral")
+        if "Ranking geral" in df.columns:
+            df=df.sort_values("Ranking geral")
 
     st.dataframe(
-        style_df(df[cols]),
+        style_df(df[cols_existentes]),
         use_container_width=True,
         hide_index=True
     )
@@ -260,22 +260,35 @@ def main():
 
     st.caption(f"Versão do painel: {VERSAO}")
 
-    arquivo=st.file_uploader("Upload da planilha Excel",type=["xlsx"])
+    with st.sidebar:
+
+        st.header("Configurações")
+
+        arquivo=st.file_uploader("Upload da planilha Excel",type=["xlsx"])
+
+        busca_nome=st.text_input("Buscar candidato")
 
     if not arquivo:
         st.stop()
 
     df_raw=pd.read_excel(arquivo,sheet_name="ranking")
-
     df_vagas=pd.read_excel(arquivo,sheet_name="vagas")
 
     df,chamada_atual,chamada_fechada=processar(df_raw)
 
+    if busca_nome:
+
+        st.markdown("## Resultado da busca")
+
+        df_busca=df[df["Nome"].str.contains(busca_nome,case=False,na=False)]
+
+        render_lista(df_busca,"Busca")
+
+        return
+
     cursos=sorted(df["Curso"].unique())
 
     with st.sidebar:
-
-        st.header("Filtros")
 
         curso_sel=st.selectbox(
             "Curso",
@@ -283,8 +296,6 @@ def main():
         )
 
     if curso_sel=="-- Todos os Cursos --":
-
-        render_resumo(df)
 
         resumo_chamadas(df,chamada_atual,chamada_fechada)
 
