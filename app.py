@@ -2,25 +2,18 @@ import streamlit as st
 import pandas as pd
 import re
 
-VERSAO = "v5.1"
+VERSAO = "v5.2"
 
 st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
 
 st.markdown("""
 <style>
-
-.main {
-background-color:#f8f9fa;
-}
+.main {background-color:#f8f9fa;}
 
 .section-title{
 font-weight:700;
 color:#1f77b4;
 margin-top:20px;
-}
-
-.center-table td, .center-table th{
-text-align:center !important;
 }
 
 </style>
@@ -52,10 +45,6 @@ STATUS_ENCERRADO=[
 STATUS_OCUPA_VAGA=[
 "🟢 Matriculado",
 "🔵 Etapa 1 concluída"
-]
-
-COTAS=[
-"AC","LB_EP","LB_PCD","LB_PPI","LB_Q","LI_EP","LI_PCD","LI_PPI","LI_Q"
 ]
 
 
@@ -205,53 +194,34 @@ def resumo_chamadas(df,chamada_atual,chamada_fechada):
     st.dataframe(tabela,use_container_width=True,hide_index=True)
 
 
-def render_lista(df,proc_sel):
+def render_busca(df):
 
-    st.markdown("<h3 class='section-title'>Lista de candidatos</h3>",unsafe_allow_html=True)
+    st.markdown("## Resultado da busca")
 
     cols=[
-        "Ranking geral",
-        "Inscrição",
-        "Nome",
-        "Nota final",
-        "Cota do candidato",
-        "Cota da vaga garantida",
-        "Status"
+    "Processo seletivo",
+    "Curso",
+    "Nome",
+    "Ranking geral",
+    "Nota final",
+    "Cota do candidato",
+    "Cota da vaga garantida",
+    "Status"
     ]
 
-    cols_existentes=[c for c in cols if c in df.columns]
+    cols=[c for c in cols if c in df.columns]
 
-    df=df.copy()
+    df=df.sort_values(["Processo seletivo","Curso","Ranking geral"])
 
-    if "Cota da vaga garantida" in df.columns:
-        df.rename(columns={
-            "Cota da vaga garantida":"Vaga ocupada pelo candidato"
-        },inplace=True)
+    df=df.rename(columns={
+        "Processo seletivo":"Processo",
+        "Ranking geral":"Ranking",
+        "Nota final":"Nota",
+        "Cota do candidato":"Cota",
+        "Cota da vaga garantida":"Vaga ocupada"
+    })
 
-        cols_existentes=[c if c!="Cota da vaga garantida" else "Vaga ocupada pelo candidato" for c in cols_existentes]
-
-    if proc_sel=="Todos":
-
-        st.info("Lista de todos os candidatos em ordem alfabética.")
-
-        if "Ranking geral" in cols_existentes:
-            cols_existentes.remove("Ranking geral")
-
-        if "Nome" in df.columns:
-            df=df.sort_values("Nome")
-
-    else:
-
-        st.info("Lista ordenada por classificação geral.")
-
-        if "Ranking geral" in df.columns:
-            df=df.sort_values("Ranking geral")
-
-    st.dataframe(
-        style_df(df[cols_existentes]),
-        use_container_width=True,
-        hide_index=True
-    )
+    st.dataframe(style_df(df[cols]),use_container_width=True,hide_index=True)
 
 
 def main():
@@ -262,27 +232,35 @@ def main():
 
     with st.sidebar:
 
-        st.header("Configurações")
+        with st.expander("📂 Upload da planilha",expanded=True):
 
-        arquivo=st.file_uploader("Upload da planilha Excel",type=["xlsx"])
+            arquivo=st.file_uploader("Carregar planilha Excel",type=["xlsx"])
 
-        busca_nome=st.text_input("Buscar candidato")
+        col1,col2=st.columns([3,1])
+
+        busca_nome=col1.text_input("Buscar candidato")
+
+        limpar=col2.button("Limpar")
+
+        if limpar:
+            busca_nome=""
 
     if not arquivo:
         st.stop()
 
     df_raw=pd.read_excel(arquivo,sheet_name="ranking")
+
     df_vagas=pd.read_excel(arquivo,sheet_name="vagas")
 
     df,chamada_atual,chamada_fechada=processar(df_raw)
 
     if busca_nome:
 
-        st.markdown("## Resultado da busca")
-
         df_busca=df[df["Nome"].str.contains(busca_nome,case=False,na=False)]
 
-        render_lista(df_busca,"Busca")
+        st.info(f"Resultados encontrados: {len(df_busca)} candidatos")
+
+        render_busca(df_busca)
 
         return
 
@@ -324,7 +302,39 @@ def main():
 
     resumo_chamadas(df,chamada_atual,chamada_fechada)
 
-    render_lista(df,proc_sel)
+    cols=[
+    "Ranking geral",
+    "Inscrição",
+    "Nome",
+    "Nota final",
+    "Cota do candidato",
+    "Cota da vaga garantida",
+    "Status"
+    ]
+
+    cols=[c for c in cols if c in df.columns]
+
+    if proc_sel=="Todos":
+
+        if "Ranking geral" in cols:
+            cols.remove("Ranking geral")
+
+        df=df.sort_values("Nome")
+
+    else:
+
+        if "Ranking geral" in df.columns:
+            df=df.sort_values("Ranking geral")
+
+    df=df.rename(columns={
+        "Cota da vaga garantida":"Vaga ocupada"
+    })
+
+    st.dataframe(
+        style_df(df[cols]),
+        use_container_width=True,
+        hide_index=True
+    )
 
 
 if __name__=="__main__":
