@@ -2,21 +2,9 @@ import streamlit as st
 import pandas as pd
 import re
 
-VERSAO = "v5.6"
+VERSAO = "v5.7"
 
 st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
-
-st.markdown("""
-<style>
-.main {background-color:#f8f9fa;}
-.section-title{
-font-weight:700;
-color:#1f77b4;
-margin-top:20px;
-}
-</style>
-""", unsafe_allow_html=True)
-
 
 MAPA_STATUS = {
 "Etapa 2 concluída":"🟢 Matriculado",
@@ -43,38 +31,28 @@ COTAS=["AC","LB_EP","LB_PCD","LB_PPI","LB_Q","LI_EP","LI_PCD","LI_PPI","LI_Q"]
 
 
 def extrair_chamada(txt):
-
     if pd.isna(txt):
         return 0
-
     nums=re.findall(r"(\d+)ª",str(txt))
-
     if not nums:
         return 0
-
     return max([int(n) for n in nums])
 
 
 def detectar_chamada_atual(df):
-
     chamadas=df.groupby("Processo seletivo")["Chamada detectada"].max()
-
     return chamadas.to_dict()
 
 
 def chamada_encerrada(df):
 
     res={}
-
     for proc,g in df.groupby("Processo seletivo"):
-
         atual=g["Chamada detectada"].max()
-
         enc=g[
             (g["Chamada detectada"]==atual) &
             (g["Situação do requerimento de matrícula"]=="Etapa 2 concluída")
         ]
-
         res[proc]=len(enc)>0
 
     return res
@@ -85,14 +63,14 @@ def status_exibicao(row,chamada_atual,chamada_fechada):
     s=str(row["Situação do requerimento de matrícula"]).strip()
 
     proc=row["Processo seletivo"]
-
     chamada=row["Chamada detectada"]
 
     if s in MAPA_STATUS:
         return MAPA_STATUS[s]
 
-if chamada==0:
-    return "⚪ Lista de espera"
+    # CORREÇÃO v5.7
+    if chamada==0:
+        return "⚪ Lista de espera"
 
     atual=chamada_atual.get(proc,0)
 
@@ -103,7 +81,7 @@ if chamada==0:
 
         return "🟡 Convocado"
 
-    return "🔴 Não compareceu"
+    return "🟡 Aguardando vaga"
 
 
 def processar(df):
@@ -150,7 +128,6 @@ def style_df(df):
         return [""]*len(row)
 
     sty=df.style.apply(cor,axis=1)
-
     sty=sty.set_properties(**{"text-align":"center"})
 
     if "Nome" in df.columns:
@@ -164,13 +141,9 @@ def resumo_geral(df):
     st.markdown("## 📊 Visão Geral")
 
     total=len(df)
-
     matriculados=len(df[df["Status"]=="🟢 Matriculado"])
-
     processo=len(df[df["Status"]=="🟡 Em processo"])
-
     aguardando=len(df[df["Status"]=="🟡 Aguardando vaga"])
-
     convocados=len(df[df["Status"]=="🟡 Convocado"])
 
     c1,c2,c3,c4,c5=st.columns(5)
@@ -223,14 +196,11 @@ def main():
 
     with st.sidebar:
 
-        with st.expander("📂 Upload da planilha",expanded=True):
-
+        with st.expander("Upload da planilha",expanded=True):
             arquivo=st.file_uploader("Carregar planilha Excel",type=["xlsx"])
 
         col1,col2=st.columns([3,1])
-
         busca_nome=col1.text_input("Buscar candidato")
-
         limpar=col2.button("Limpar")
 
         if limpar:
@@ -249,11 +219,8 @@ def main():
     if busca_nome:
 
         df_busca=df[df["Nome"].str.contains(busca_nome,case=False,na=False)]
-
         st.info(f"{len(df_busca)} candidatos encontrados")
-
         render_busca(df_busca)
-
         return
 
     cursos=sorted(df["Curso"].unique())
@@ -298,12 +265,8 @@ def main():
 
     if cota_sel!="Todas":
 
-        st.info(f"Lista de candidatos da modalidade {cota_sel}, ordenados por ranking dentro da cota.")
-
         df_cota=df[df["Cota do candidato"]==cota_sel].copy()
-
         df_cota=df_cota.sort_values("Ranking")
-
         df_cota["Ranking Cota"]=range(1,len(df_cota)+1)
 
         cols=[
