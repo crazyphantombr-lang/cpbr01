@@ -2,11 +2,10 @@ import streamlit as st
 import pandas as pd
 import re
 
-VERSAO = "5.9.0"
+VERSAO = "5.9.1"
 
 st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
 
-# MAPA_STATUS atualizado: "Etapa 1 concluída" redirecionada para "Em processo"
 MAPA_STATUS = {
     "Etapa 2 concluída":"🟢 Matriculado",
     "Etapa 1 concluída":"🟡 Em processo",
@@ -30,7 +29,6 @@ STATUS_ENCERRADO = [
 
 COTAS = ["AC","LB_EP","LB_PCD","LB_PPI","LB_Q","LI_EP","LI_PCD","LI_PPI","LI_Q"]
 
-# --- INICIALIZAÇÃO DE ESTADOS (Para o botão Limpar global) ---
 if "busca" not in st.session_state: st.session_state.busca = ""
 if "curso" not in st.session_state: st.session_state.curso = "-- Todos os Cursos --"
 if "processo" not in st.session_state: st.session_state.processo = "Todos"
@@ -44,13 +42,55 @@ def limpar_filtros():
     st.session_state.cota = "Todas"
     st.session_state.ocultar = False
 
-# --- FUNÇÕES DE PROCESSAMENTO ---
+# --- MOTOR DE TEMPO REAL (CRONOGRAMA) ---
+def parse_dates(text):
+    if pd.isna(text): return None, None
+    matches = re.findall(r"(\d{2}/\d{2}/\d{4}),\s*(\d{2})h:(\d{2})min", str(text))
+    dates = []
+    for m in matches:
+        dt_str = f"{m[0]} {m[1]}:{m[2]}"
+        try:
+            dates.append(pd.to_datetime(dt_str, format="%d/%m/%Y %H:%M"))
+        except:
+            pass
+    if len(dates) == 0: return None, None
+    if len(dates) == 1: return dates[0], dates[0]
+    return dates[0], dates[1]
+
+def get_active_phase(df_group):
+    now = pd.Timestamp.now()
+    
+    for _, row in df_group.iterrows():
+        sit = str(row.get('situação', '')).strip()
+        in_start, in_end = parse_dates(row.get('início'))
+        fim_start, fim_end = parse_dates(row.get('fim'))
+        res_start, _ = parse_dates(row.get('resultado'))
+
+        if in_start and now < in_start:
+            return f"⏳ Aguardando: {sit}"
+        if in_start and in_end and in_start <= now <= in_end:
+            return f"🟢 {sit} (Prazo Candidato)"
+        if in_end and fim_start and in_end < now < fim_start:
+            return f"🟡 Aguardando Análise: {sit}"
+        if fim_start and fim_end and fim_start <= now <= fim_end:
+            return f"🟠 {sit} (Em Análise Interna)"
+        if fim_end and res_start and fim_end < now < res_start:
+            return f"🟡 Aguardando Resultado: {sit}"
+        
+        final_date = res_start if res_start else (fim_end if fim_end else in_end)
+        
+        if final_date and now <= final_date:
+            return f"🟡 Em andamento: {sit}"
+        
+        if final_date and now > final_date:
+            continue 
+    
+    return "🔴 Processo Finalizado"
+
 def extrair_chamada(txt):
-    if pd.isna(txt):
-        return 0
+    if pd.isna(txt): return 0
     nums = re.findall(r"(\d+)ª", str(txt))
-    if not nums:
-        return 0
+    if not nums: return 0
     return max([int(n) for n in nums])
 
 def detectar_chamada_atual(df):
@@ -73,22 +113,16 @@ def status_exibicao(row, chamada_atual, chamada_fechada):
     proc = row["Processo seletivo"]
     chamada = row["Chamada"]
 
-    if s in MAPA_STATUS:
-        return MAPA_STATUS[s]
-
-    if chamada == 0:
-        return "⚪ Lista de espera"
+    if s in MAPA_STATUS: return MAPA_STATUS[s]
+    if chamada == 0: return "⚪ Lista de espera"
 
     atual = chamada_atual.get(proc, 0)
 
     if chamada == atual:
-        if chamada_fechada.get(proc, False):
-            return "🔴 Não compareceu"
+        if chamada_fechada.get(proc, False): return "🔴 Não compareceu"
         return "🟡 Convocado"
 
-    if chamada < atual:
-        return "🔴 Não compareceu"
-
+    if chamada < atual: return "🔴 Não compareceu"
     return "⚪ Sem status"
 
 def processar(df):
@@ -105,14 +139,11 @@ def processar(df):
     chamada_atual = detectar_chamada_atual(df)
     chamada_fechada = chamada_encerrada(df)
 
-    df["Status"] = df.apply(
-        lambda r: status_exibicao(r, chamada_atual, chamada_fechada), axis=1
-    )
-
+    df["Status"] = df.apply(lambda r: status_exibicao(r, chamada_atual, chamada_fechada), axis=1)
     df = df.rename(columns={"Cota da vaga garantida": "Vaga ocupada"})
+    
     return df, chamada_atual, chamada_fechada
 
-# --- FUNÇÕES DE UI / ESTILO ---
 def style_df(df):
     def cor(row):
         if row["Status"] == "🟢 Matriculado": return ["background-color:#e6ffed"] * len(row)
@@ -126,7 +157,7 @@ def style_df(df):
     if "Nome" in df.columns: sty = sty.set_properties(subset=["Nome"], **{"text-align": "left"})
     return sty
 
-def resumo_geral(df, chamada_atual, chamada_fechada):
+def resumo_geral(df, chamada_atual, chamada_fechada, df_crono):
     st.markdown("## 📊 Visão Geral")
 
     total = len(df)
@@ -155,15 +186,30 @@ def resumo_geral(df, chamada_atual, chamada_fechada):
     st.dataframe(resumo, use_container_width=True, hide_index=True)
 
     st.markdown("### 📋 Situação dos Processos Seletivos")
-    dados_processos = []
-    for proc, atual in chamada_atual.items():
-        situacao = "🔴 Finalizada" if chamada_fechada.get(proc, False) else "🟢 Em andamento"
-        dados_processos.append({
-            "Processo seletivo": proc,
-            "Chamada atual": f"{atual}ª Chamada" if atual > 0 else "Nenhuma",
-            "Situação": situacao
-        })
-    st.dataframe(pd.DataFrame(dados_processos), use_container_width=True, hide_index=True)
+    
+    if df_crono is not None and not df_crono.empty:
+        df_crono.columns = [c.lower().strip() for c in df_crono.columns]
+        dados_processos = []
+        for (proc, chamada), group in df_crono.groupby(['processo', 'chamada']):
+            fase = get_active_phase(group)
+            dados_processos.append({
+                "Processo seletivo": str(proc).title(),
+                "Chamada": f"{chamada}ª Chamada",
+                "Status / Fase Atual": fase
+            })
+        df_proc = pd.DataFrame(dados_processos).sort_values(by=["Processo seletivo", "Chamada"])
+        st.dataframe(df_proc, use_container_width=True, hide_index=True)
+    else:
+        # Fallback caso a aba cronograma não exista ou esteja vazia
+        dados_processos = []
+        for proc, atual in chamada_atual.items():
+            situacao = "🔴 Finalizada" if chamada_fechada.get(proc, False) else "🟢 Em andamento"
+            dados_processos.append({
+                "Processo seletivo": proc,
+                "Chamada atual": f"{atual}ª Chamada" if atual > 0 else "Nenhuma",
+                "Situação": situacao
+            })
+        st.dataframe(pd.DataFrame(dados_processos), use_container_width=True, hide_index=True)
 
 def render_busca(df):
     st.markdown("## 🔎 Resultado da busca")
@@ -172,7 +218,6 @@ def render_busca(df):
     cols = [c for c in cols if c in df.columns]
     st.dataframe(style_df(df[cols]), use_container_width=True, hide_index=True)
 
-# --- DASHBOARD PRINCIPAL ---
 def main():
     st.title("Gestão de Processos Seletivos")
     st.caption(f"Versão {VERSAO}")
@@ -186,9 +231,14 @@ def main():
 
     df_raw = pd.read_excel(arquivo, sheet_name="ranking")
     df_vagas = pd.read_excel(arquivo, sheet_name="vagas")
+    
+    try:
+        df_crono = pd.read_excel(arquivo, sheet_name="cronograma")
+    except:
+        df_crono = None
+
     df, chamada_atual, chamada_fechada = processar(df_raw)
 
-    # Construção dos Filtros Dinâmicos na Sidebar
     with st.sidebar:
         st.text_input("Buscar candidato", key="busca")
         
@@ -215,7 +265,6 @@ def main():
         st.divider()
         st.button("🧹 Limpar Filtros", on_click=limpar_filtros, use_container_width=True)
 
-    # Renderização da Tela Central
     if st.session_state.busca:
         df_busca = df[df["Nome"].str.contains(st.session_state.busca, case=False, na=False)]
         st.info(f"{len(df_busca)} candidatos encontrados")
@@ -223,13 +272,11 @@ def main():
         return
 
     if st.session_state.curso == "-- Todos os Cursos --":
-        resumo_geral(df, chamada_atual, chamada_fechada)
+        resumo_geral(df, chamada_atual, chamada_fechada, df_crono)
         return
 
-    # Filtro de Curso Aplicado
     df = df[df["Curso"] == st.session_state.curso]
 
-    # Quadro de Vagas Inteligente
     if st.session_state.processo != "Todos":
         st.markdown(f"### 🎯 Quadro de Vagas: {st.session_state.processo}")
         
@@ -251,7 +298,6 @@ def main():
         c3.metric("Saldo de Vagas", int(saldo))
         st.divider()
 
-    # Aplicação dos filtros restantes na tabela
     if st.session_state.processo != "Todos":
         df = df[df["Processo seletivo"] == st.session_state.processo]
 
