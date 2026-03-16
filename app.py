@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 
-VERSAO = "v5.2"
+VERSAO = "v5.3"
 
 st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
 
@@ -15,7 +15,6 @@ font-weight:700;
 color:#1f77b4;
 margin-top:20px;
 }
-
 </style>
 """, unsafe_allow_html=True)
 
@@ -198,21 +197,6 @@ def render_busca(df):
 
     st.markdown("## Resultado da busca")
 
-    cols=[
-    "Processo seletivo",
-    "Curso",
-    "Nome",
-    "Ranking geral",
-    "Nota final",
-    "Cota do candidato",
-    "Cota da vaga garantida",
-    "Status"
-    ]
-
-    cols=[c for c in cols if c in df.columns]
-
-    df=df.sort_values(["Processo seletivo","Curso","Ranking geral"])
-
     df=df.rename(columns={
         "Processo seletivo":"Processo",
         "Ranking geral":"Ranking",
@@ -220,6 +204,19 @@ def render_busca(df):
         "Cota do candidato":"Cota",
         "Cota da vaga garantida":"Vaga ocupada"
     })
+
+    cols=[
+    "Processo",
+    "Curso",
+    "Nome",
+    "Ranking",
+    "Nota",
+    "Cota",
+    "Vaga ocupada",
+    "Status"
+    ]
+
+    cols=[c for c in cols if c in df.columns]
 
     st.dataframe(style_df(df[cols]),use_container_width=True,hide_index=True)
 
@@ -293,14 +290,16 @@ def main():
         ocultar=st.checkbox("Ocultar candidatos com processo encerrado")
 
     if proc_sel!="Todos":
-
         df=df[df["Processo seletivo"]==proc_sel]
 
     if ocultar:
-
         df=df[~df["Status"].isin(STATUS_ENCERRADO)]
 
     resumo_chamadas(df,chamada_atual,chamada_fechada)
+
+    df=df.rename(columns={
+        "Cota da vaga garantida":"Vaga ocupada"
+    })
 
     cols=[
     "Ranking geral",
@@ -308,7 +307,7 @@ def main():
     "Nome",
     "Nota final",
     "Cota do candidato",
-    "Cota da vaga garantida",
+    "Vaga ocupada",
     "Status"
     ]
 
@@ -325,10 +324,6 @@ def main():
 
         if "Ranking geral" in df.columns:
             df=df.sort_values("Ranking geral")
-
-    df=df.rename(columns={
-        "Cota da vaga garantida":"Vaga ocupada"
-    })
 
     st.dataframe(
         style_df(df[cols]),
