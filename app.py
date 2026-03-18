@@ -106,10 +106,23 @@ def ultima_posicao_cota(df):
     return res
 
 def calcular_vagas(df_vagas):
+    df = df_vagas.copy()
+
+    df.columns = [c.strip() for c in df.columns]
+
+    cotas = ["AC","LB_PPI","LB_Q","LB_PCD","LB_EP","LI_PPI","LI_PCD","LI_EP","LI_Q"]
+
     vagas = {}
-    for _, row in df_vagas.iterrows():
-        key = (row["Processo seletivo"], row["Curso"], row["Cota"])
-        vagas[key] = row["Vagas"]
+
+    for _, row in df.iterrows():
+        proc = row["Processo seletivo"]
+        curso = row["Curso"]
+
+        for cota in cotas:
+            if cota in df.columns:
+                valor = pd.to_numeric(row[cota], errors="coerce")
+                vagas[(proc, curso, cota)] = int(valor) if pd.notna(valor) else 0
+
     return vagas
 
 @st.cache_data
