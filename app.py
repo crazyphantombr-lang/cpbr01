@@ -108,20 +108,39 @@ def ultima_posicao_cota(df):
 def calcular_vagas(df_vagas):
     df = df_vagas.copy()
 
-    df.columns = [c.strip() for c in df.columns]
+    # normaliza tudo (remove acento + lowercase)
+    def normalizar(txt):
+        return (
+            str(txt)
+            .strip()
+            .lower()
+            .replace("ç", "c")
+            .replace("ã", "a")
+            .replace("á", "a")
+            .replace("é", "e")
+            .replace("í", "i")
+            .replace("ó", "o")
+            .replace("ú", "u")
+        )
 
-    cotas = ["AC","LB_PPI","LB_Q","LB_PCD","LB_EP","LI_PPI","LI_PCD","LI_EP","LI_Q"]
+    df.columns = [normalizar(c) for c in df.columns]
+
+    # detectar colunas automaticamente
+    col_processo = [c for c in df.columns if "processo" in c][0]
+    col_curso = [c for c in df.columns if c == "curso"][0]
+
+    cotas = ["ac","lb_ppi","lb_q","lb_pcd","lb_ep","li_ppi","li_pcd","li_ep","li_q"]
 
     vagas = {}
 
     for _, row in df.iterrows():
-        proc = row["Processo seletivo"]
-        curso = row["Curso"]
+        proc = row[col_processo]
+        curso = row[col_curso]
 
         for cota in cotas:
             if cota in df.columns:
                 valor = pd.to_numeric(row[cota], errors="coerce")
-                vagas[(proc, curso, cota)] = int(valor) if pd.notna(valor) else 0
+                vagas[(proc, curso, cota.upper())] = int(valor) if pd.notna(valor) else 0
 
     return vagas
 
