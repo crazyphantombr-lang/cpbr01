@@ -6,86 +6,73 @@ st.set_page_config(layout="wide")
 # =========================
 # PROCESSAMENTO
 # =========================
-
 @st.cache_data
 def processar(df):
     df = df.copy()
-
     df.columns = [c.strip() for c in df.columns]
 
-    # normalizações
+    # Ranking geral (base = AC)
     df["Ranking Geral"] = pd.to_numeric(df["Class ACP1"], errors="coerce")
 
-    # ranking por cota (dinâmico)
-    def get_ranking_cota(row):
-        cota = row["Cota do candidato"]
-        mapa = {
-            "AC": "Class ACP1",
-            "LB_PPI": "Class LB_PPIP9",
-            "LB_Q": "Class LB_QP8",
-            "LB_PCD": "Class LB_PCDP7",
-            "LB_EP": "Class LB_EPP6",
-            "LI_PPI": "Class LI_PPIP5",
-            "LI_Q": "Class LI_QP4",
-            "LI_PCD": "Class LI_PCDP3",
-            "LI_EP": "Class LI_EPP2",
-        }
-        col = mapa.get(cota)
-        if col in df.columns:
-            return pd.to_numeric(row[col], errors="coerce")
-        return None
-
-    df["Ranking_cota"] = df.apply(get_ranking_cota, axis=1)
+    # Normalizações
+    df["Situação"] = df["Situação"].astype(str).str.strip()
+    df["Cota"] = df["Cota"].astype(str).str.strip()
 
     return df
 
 
 @st.cache_data
 def calcular_ultima_cota(df):
-    res = {}
+    resultado = {}
 
-    for (proc, curso, cota), g in df.groupby(["Processo seletivo", "Curso", "Cota do candidato"]):
-        chamados = g[g["Status"] == "🟢 Matriculado"]
+    grupos = df.groupby(["Processo seletivo", "Curso"])
 
-        if len(chamados) > 0:
+    for (proc, curso), g in grupos:
+        matriculados = g[g["Situação"] == "🟢 Matriculado"]
+
+        for _, row in matriculados.iterrows():
+            cota = row["Cota"]
+
             if cota == "AC":
-                pos = chamados["Ranking Geral"].max()
+                pos = row["Ranking Geral"]
             else:
-                pos = chamados["Ranking_cota"].max()
-        else:
-            pos = 0
+                col_cota = f"Class {cota}"
+                if col_cota in g.columns:
+                    pos = row[col_cota]
+                else:
+                    continue
 
-        res[(proc, curso, cota)] = pos
+            key = (proc, curso, cota)
 
-    return res
+            if key not in resultado or pos > resultado[key]:
+                resultado[key] = pos
 
-
-@st.cache_data
-def calcular_vagas(df):
-    df = df.copy()
-    df.columns = [c.strip() for c in df.columns]
-
-    cotas = ["AC","LB_PPI","LB_Q","LB_PCD","LB_EP","LI_PPI","LI_PCD","LI_EP","LI_Q"]
-
-    vagas = {}
-
-    for _, row in df.iterrows():
-        proc = row["Processo seletivo"]
-        curso = row["Curso"]
-
-        for cota in cotas:
-            if cota in df.columns:
-                valor = pd.to_numeric(row[cota], errors="coerce")
-                vagas[(proc, curso, cota)] = int(valor) if pd.notna(valor) else 0
-
-    return vagas
+    return resultado
 
 
 # =========================
-# UI CANDIDATO
+# HELPERS
 # =========================
+def get_rank_cota(row):
+    cota = row["Cota"]
 
-def tela_candidato(df, vagas, ultima_cota):
+    if cota == "AC":
+        return row["Ranking Geral"]
+
+    col = f"Class {cota}"
+    return row[col] if col in row else None
+
+
+def format_pos(x):
+    if pd.isna(x):
+        return "-"
+    return f"{int(x)}º"
+
+
+# =========================
+# TELA CANDIDATO
+# =========================
+def tela_candidato(df, ultima_cota):
     nome = st.text_input("Digite seu nome")
 
     if not nome:
@@ -97,90 +84,60 @@ def tela_candidato(df, vagas, ultima_cota):
         st.warning("Nenhum candidato encontrado")
         return
 
-    for nome_candidato, grupo_nome in df_filtrado.groupby("Nome"):
-        st.markdown(f"# {nome_candidato}")
+    grupos = df_filtrado.groupby("Processo seletivo")
 
-        for _, row in grupo_nome.iterrows():
+    for proc, g in grupos:
+        st.markdown(f"## {proc}")
 
-            proc = row["Processo seletivo"]
+        for _, row in g.iterrows():
             curso = row["Curso"]
-            cota = row["Cota do candidato"]
-            status = row["Status"]
+            cota = row["Cota"]
+            situacao = row["Situação"]
 
             ranking_geral = row["Ranking Geral"]
-            ranking_cota = row["Ranking_cota"]
+            ranking_cota = get_rank_cota(row)
 
-            ultima = ultima_cota.get((proc, curso, cota), 0)
-            vagas_base = vagas.get((proc, curso, cota), 0)
+            key = (proc, curso, cota)
+            ultima = ultima_cota.get(key)
 
-            ocupadas = len(df[
-                (df["Processo seletivo"] == proc) &
-                (df["Curso"] == curso) &
-                (df["Cota do candidato"] == cota) &
-                (df["Status"] == "🟢 Matriculado")
-            ])
+            # distância
+            distancia = None
+            if ultima and ranking_cota:
+                distancia = int(ranking_cota - ultima)
 
-            excedente = max(0, ocupadas - vagas_base)
+            # forma de ingresso
+            forma = ""
+            if situacao == "🟢 Matriculado":
+                forma = row.get("Cota da vaga garantida", "-")
 
-            # status + processo unificado
-            st.markdown(f"### 📌 {proc} — {status}")
+            st.markdown(f"""
+### {curso}
 
-            col1, col2 = st.columns(2)
+**Situação:** {situacao}  
+**Cota do candidato:** {cota}  
 
-            with col1:
-                st.markdown(f"**Curso:** {curso}")
-                st.markdown(f"**Cota do candidato:** {cota}")
+**Sua posição no Ranking Geral:** {format_pos(ranking_geral)}  
+**Sua posição no Ranking da sua Cota:** {format_pos(ranking_cota)}  
 
-                st.markdown(
-                    f"**Vagas na sua cota:** {vagas_base}"
-                    + (f" + {excedente} vagas excedentes que vieram de outras cotas" if excedente > 0 else "")
-                )
+**Último chamado na cota:** {format_pos(ultima)}  
+{"**Você está " + str(distancia) + " posições atrás do último chamado**" if distancia and distancia > 0 else ""}
 
-                st.markdown(f"**Vagas ocupadas:** {ocupadas}")
-
-                if status == "🟢 Matriculado":
-                    vaga = row.get("Cota da vaga garantida", "-")
-                    st.markdown(f"**Conseguiu a vaga através de:** {vaga}")
-
-            with col2:
-                if pd.notna(ranking_geral):
-                    st.markdown(f"**Sua posição no Ranking Geral:** {int(ranking_geral)}º")
-
-                if cota == "AC":
-                    ranking_cota_exibir = ranking_geral
-                else:
-                    ranking_cota_exibir = ranking_cota
-
-                if pd.notna(ranking_cota_exibir):
-                    st.markdown(f"**Sua posição no Ranking da sua Cota:** {int(ranking_cota_exibir)}º")
-
-                # último chamado
-                if ultima == 0:
-                    texto_ultima = "Não houve chamada ainda"
-                else:
-                    texto_ultima = f"{int(ultima)}º"
-
-                st.markdown(f"**Último chamado na cota:** {texto_ultima}")
-
-                # distância
-                if ultima and ranking_cota_exibir:
-                    diff = int(ranking_cota_exibir) - int(ultima)
-
-                    if diff > 0:
-                        st.markdown(f"**Você está {diff} posições atrás do último chamado**")
-                        st.markdown("Você ainda pode ser chamado se outros candidatos desistirem")
-                    else:
-                        st.markdown("Você está dentro da faixa de chamadas")
-
-            st.divider()
+{"**Conseguiu a vaga através de:** " + forma if forma else ""}
+            """)
 
 
 # =========================
-# UI GESTOR
+# TELA GESTOR
 # =========================
-
 def tela_gestor(df):
-    resumo = df.groupby(["Processo seletivo", "Curso", "Status"]).size().reset_index(name="Qtd")
+    st.markdown("## Visão Geral")
+
+    resumo = (
+        df.groupby(["Processo seletivo", "Curso", "Cota"])["Situação"]
+        .value_counts()
+        .unstack(fill_value=0)
+        .reset_index()
+    )
 
     st.dataframe(resumo, use_container_width=True)
 
@@ -188,26 +145,23 @@ def tela_gestor(df):
 # =========================
 # MAIN
 # =========================
-
 def main():
     st.title("Processos Seletivos")
 
-    arquivo = st.file_uploader("Upload do Excel", type=["xlsx"])
+    modo = st.radio("Modo", ["Candidato", "Gestor"])
+
+    arquivo = st.file_uploader("Envie a planilha")
 
     if not arquivo:
         return
 
-    df_raw = pd.read_excel(arquivo, sheet_name="ranking")
-    df_vagas = pd.read_excel(arquivo, sheet_name="vagas")
+    df_raw = pd.read_excel(arquivo, sheet_name="CRONOGRAMA")
 
     df = processar(df_raw)
-    vagas = calcular_vagas(df_vagas)
     ultima_cota = calcular_ultima_cota(df)
 
-    modo = st.radio("Modo", ["Candidato", "Gestor"], horizontal=True)
-
     if modo == "Candidato":
-        tela_candidato(df, vagas, ultima_cota)
+        tela_candidato(df, ultima_cota)
     else:
         tela_gestor(df)
 
