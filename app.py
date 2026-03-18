@@ -202,7 +202,7 @@ def tela_candidato(df, ultima_cota):
                     **Ranking Geral:** {int(row['Ranking Geral']) if pd.notna(row['Ranking Geral']) else '-'}  
                     **Ranking na cota:** {int(row['Ranking_cota']) if pd.notna(row['Ranking_cota']) else '-'}  
                     
-                    **Último chamado na cota:** {int(ultima) if ultima else '-'}  
+                    **Último chamado na cota:** {int(ultima) if pd.notna(ultima) and ultima != 0 else '-'}
                     """)
 
                 st.divider()
