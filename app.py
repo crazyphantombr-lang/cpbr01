@@ -108,28 +108,25 @@ def ultima_posicao_cota(df):
 def calcular_vagas(df_vagas):
     df = df_vagas.copy()
 
-    # normaliza tudo (remove acento + lowercase)
-    def normalizar(txt):
-        return (
-            str(txt)
-            .strip()
-            .lower()
-            .replace("ç", "c")
-            .replace("ã", "a")
-            .replace("á", "a")
-            .replace("é", "e")
-            .replace("í", "i")
-            .replace("ó", "o")
-            .replace("ú", "u")
-        )
+    # limpeza mínima segura
+    df.columns = [str(c).strip() for c in df.columns]
 
-    df.columns = [normalizar(c) for c in df.columns]
+    try:
+        col_processo = "Processo seletivo"
+        col_curso = "Curso"
 
-    # detectar colunas automaticamente
-    col_processo = [c for c in df.columns if "processo" in c][0]
-    col_curso = [c for c in df.columns if c == "curso"][0]
+        # validação explícita
+        if col_processo not in df.columns:
+            raise KeyError(f"Coluna não encontrada: {col_processo}")
+        if col_curso not in df.columns:
+            raise KeyError(f"Coluna não encontrada: {col_curso}")
 
-    cotas = ["ac","lb_ppi","lb_q","lb_pcd","lb_ep","li_ppi","li_pcd","li_ep","li_q"]
+    except Exception as e:
+        st.error(f"Erro ao identificar colunas na aba vagas: {e}")
+        st.write("Colunas encontradas:", df.columns.tolist())
+        st.stop()
+
+    cotas = ["AC","LB_PPI","LB_Q","LB_PCD","LB_EP","LI_PPI","LI_PCD","LI_EP","LI_Q"]
 
     vagas = {}
 
@@ -140,7 +137,7 @@ def calcular_vagas(df_vagas):
         for cota in cotas:
             if cota in df.columns:
                 valor = pd.to_numeric(row[cota], errors="coerce")
-                vagas[(proc, curso, cota.upper())] = int(valor) if pd.notna(valor) else 0
+                vagas[(proc, curso, cota)] = int(valor) if pd.notna(valor) else 0
 
     return vagas
 
