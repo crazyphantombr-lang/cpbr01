@@ -1,3 +1,5 @@
+VERSAO = "5.11.1"
+
 import streamlit as st
 import pandas as pd
 
@@ -11,10 +13,8 @@ def processar(df):
     df = df.copy()
     df.columns = [c.strip() for c in df.columns]
 
-    # Ranking geral (base = AC)
     df["Ranking Geral"] = pd.to_numeric(df["Class ACP1"], errors="coerce")
 
-    # Normalizações
     df["Situação"] = df["Situação"].astype(str).str.strip()
     df["Cota"] = df["Cota"].astype(str).str.strip()
 
@@ -100,12 +100,10 @@ def tela_candidato(df, ultima_cota):
             key = (proc, curso, cota)
             ultima = ultima_cota.get(key)
 
-            # distância
             distancia = None
             if ultima and ranking_cota:
                 distancia = int(ranking_cota - ultima)
 
-            # forma de ingresso
             forma = ""
             if situacao == "🟢 Matriculado":
                 forma = row.get("Cota da vaga garantida", "-")
@@ -146,7 +144,7 @@ def tela_gestor(df):
 # MAIN
 # =========================
 def main():
-    st.title("Processos Seletivos")
+    st.title(f"Processos Seletivos - v{VERSAO}")
 
     modo = st.radio("Modo", ["Candidato", "Gestor"])
 
