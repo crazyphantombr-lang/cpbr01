@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 
-VERSAO = "6.0.0"
+VERSAO = "6.1.0"
 
 st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
 
@@ -90,6 +90,17 @@ def chamada_encerrada(df):
         res[proc] = len(enc) > 0
     return res
 
+def ultima_posicao_cota(df):
+    res = {}
+    for (proc, curso, cota), g in df.groupby(["Processo seletivo","Curso","Cota do candidato"]):
+        chamados = g[g["Status"].isin(["🟢 Matriculado","🟡 Convocado"])]
+        if len(chamados) > 0:
+            pos = chamados["Ranking_cota"].max()
+        else:
+            pos = 0
+        res[(proc, curso, cota)] = pos
+    return res
+
 def definir_status(row, chamada_atual, chamada_fechada):
     s = str(row["Situação do requerimento de matrícula"]).strip()
     proc = row["Processo seletivo"]
@@ -122,16 +133,27 @@ def processar(df):
             df[c] = df[c].fillna("").astype(str).str.strip()
 
     df["Nota final"] = pd.to_numeric(df["Nota final"], errors="coerce").fillna(0)
-    df["Ranking"] = pd.to_numeric(df["Class ACP1"], errors="coerce")
+    df["Ranking Geral"] = pd.to_numeric(df["Class ACP1"], errors="coerce")
     df["Chamada"] = df["Chamadas"].apply(extrair_chamada)
+
+    if "Classificação na cota" in df.columns:
+        df["Ranking_cota"] = pd.to_numeric(df["Classificação na cota"], errors="coerce")
+    else:
+        df["Ranking_cota"] = None
 
     chamada_atual = detectar_chamada_atual(df)
     chamada_fechada = chamada_encerrada(df)
 
     df["Status"] = df.apply(lambda r: definir_status(r, chamada_atual, chamada_fechada), axis=1)
-    df = df.rename(columns={"Cota da vaga garantida": "Vaga ocupada"})
 
-    return df, chamada_atual, chamada_fechada
+    df["Forma_ingresso"] = df.apply(
+        lambda r: "Ampla concorrência" if r["Cota do candidato"] == "AC" else "Cota",
+        axis=1
+    )
+
+    ultima_cota = ultima_posicao_cota(df)
+
+    return df, chamada_atual, chamada_fechada, ultima_cota
 
 def interpretar_status(status):
     if "Matriculado" in status:
@@ -144,7 +166,7 @@ def interpretar_status(status):
         return "Você perdeu a chamada."
     return "Acompanhe o processo."
 
-def tela_candidato(df):
+def tela_candidato(df, ultima_cota):
     st.subheader("Consulta do candidato")
     nome = st.text_input("Digite seu nome")
 
@@ -155,19 +177,35 @@ def tela_candidato(df):
             st.warning("Nenhum candidato encontrado")
         else:
             for _, row in df_user.iterrows():
-                st.markdown(f"""
-                ## 🎯 {row['Nome']}
+                key = (row["Processo seletivo"], row["Curso"], row["Cota do candidato"])
+                ultima = ultima_cota.get(key, 0)
 
-                **{row['Status']}**
+                col1, col2 = st.columns([2,1])
 
-                {interpretar_status(row['Status'])}
+                with col1:
+                    st.markdown(f"""
+                    ## 🎯 {row['Nome']}
+                    
+                    ### 📌 Situação: **{row['Status']}**
+                    
+                    {interpretar_status(row['Status'])}
+                    
+                    **Processo seletivo:** {row['Processo seletivo']}  
+                    **Curso:** {row['Curso']}  
+                    """)
 
-                ---
-                🎓 Curso: {row['Curso']}  
-                🏆 Ranking: {int(row['Ranking']) if pd.notna(row['Ranking']) else '-'}  
-                📊 Nota: {row['Nota final']}  
-                📣 Chamada: {row['Chamada']}ª  
-                """)
+                with col2:
+                    st.markdown(f"""
+                    **Cota:** {row['Cota do candidato']}  
+                    **Forma de ingresso:** {row['Forma_ingresso']}  
+                    
+                    **Ranking Geral:** {int(row['Ranking Geral']) if pd.notna(row['Ranking Geral']) else '-'}  
+                    **Ranking na cota:** {int(row['Ranking_cota']) if pd.notna(row['Ranking_cota']) else '-'}  
+                    
+                    **Último chamado na cota:** {int(ultima) if ultima else '-'}  
+                    """)
+
+                st.divider()
 
 def kpis(df):
     col1, col2, col3, col4 = st.columns(4)
@@ -241,10 +279,10 @@ def main():
     except:
         df_crono = None
 
-    df, chamada_atual, chamada_fechada = processar(df_raw)
+    df, chamada_atual, chamada_fechada, ultima_cota = processar(df_raw)
 
     if modo == "👤 Candidato":
-        tela_candidato(df)
+        tela_candidato(df, ultima_cota)
     else:
         tela_gestor(df, df_crono)
 
