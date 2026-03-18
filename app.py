@@ -14,7 +14,7 @@ def processar(df):
     df.columns = [c.strip() for c in df.columns]
 
     # normalizações
-    df["Ranking Geral"] = pd.to_numeric(df["Ranking Geral"], errors="coerce")
+    df["Ranking Geral"] = pd.to_numeric(df["Class ACP1"], errors="coerce")
 
     # ranking por cota (dinâmico)
     def get_ranking_cota(row):
