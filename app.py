@@ -155,7 +155,7 @@ def main():
     if not arquivo:
         return
 
-    df_raw = pd.read_excel(arquivo, sheet_name="CRONOGRAMA")
+    df_raw = pd.read_excel(arquivo, sheet_name="cronograma")
 
     df = processar(df_raw)
     ultima_cota = calcular_ultima_cota(df)
