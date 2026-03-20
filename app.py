@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 
-VERSAO = "5.11.0"
+VERSAO = "5.11.1"
 
 st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
 
@@ -14,10 +14,12 @@ MAPA_STATUS = {
     "Indeferido":"🔴 Indeferido",
     "Não compareceu":"🔴 Não compareceu",
     "Enviou documentação":"🟡 Em processo",
+    "Enviou substituição de documentos":"🟡 Em processo",
     "Enviou recurso":"🟡 Em processo",
     "Enviar recurso":"🟡 Em processo",
     "Enviar substituição de documentos":"🟡 Em processo",
-    "Aguardando vaga":"🟡 Aguardando vaga"
+    "Aguardando vaga":"🟡 Aguardando vaga",
+    "Aguardando convocação em outra cota":"🟡 Aguardando vaga"
 }
 
 STATUS_ENCERRADO = [
@@ -60,23 +62,23 @@ def get_active_phase(df_group):
     now = pd.Timestamp.now()
     
     for _, row in df_group.iterrows():
-        sit = str(row.get('situação', '')).strip()
-        in_start, in_end = parse_dates(row.get('início'))
-        fim_start, fim_end = parse_dates(row.get('fim'))
-        res_start, _ = parse_dates(row.get('resultado'))
+        sit = str(row.get('etapa_do_processo', '')).strip()
+        cand_start, cand_end = parse_dates(row.get('prazo_candidato'))
+        int_start, int_end = parse_dates(row.get('prazo_analise_interna'))
+        res_start, _ = parse_dates(row.get('publicação_resultado'))
 
-        if in_start and now < in_start:
+        if cand_start and now < cand_start:
             return f"⏳ Aguardando: {sit}"
-        if in_start and in_end and in_start <= now <= in_end:
+        if cand_start and cand_end and cand_start <= now <= cand_end:
             return f"🟢 {sit} (Prazo Candidato)"
-        if in_end and fim_start and in_end < now < fim_start:
+        if cand_end and int_start and cand_end < now < int_start:
             return f"🟡 Aguardando Análise: {sit}"
-        if fim_start and fim_end and fim_start <= now <= fim_end:
+        if int_start and int_end and int_start <= now <= int_end:
             return f"🟠 {sit} (Em Análise Interna)"
-        if fim_end and res_start and fim_end < now < res_start:
+        if int_end and res_start and int_end < now < res_start:
             return f"🟡 Aguardando Resultado: {sit}"
         
-        final_date = res_start if res_start else (fim_end if fim_end else in_end)
+        final_date = res_start if res_start else (int_end if int_end else cand_end)
         
         if final_date and now <= final_date:
             return f"🟡 Em andamento: {sit}"
@@ -135,7 +137,6 @@ def processar(df):
     df["Ranking"] = pd.to_numeric(df["Class ACP1"], errors="coerce")
     df["Chamada"] = df["Chamadas"].apply(extrair_chamada)
 
-    # NOVO: Cálculo do Ranking Cota nos bastidores
     df["Ranking Cota"] = df.groupby(["Curso", "Processo seletivo", "Cota do candidato"])["Ranking"].rank(method="min").fillna(0).astype(int)
 
     chamada_atual = detectar_chamada_atual(df)
@@ -178,7 +179,6 @@ def resumo_geral(df, chamada_atual, chamada_fechada, df_crono):
     convocados = len(df[df["Status"] == "🟡 Convocado"])
     lista_espera = len(df[df["Status"] == "⚪ Lista de espera"])
 
-    # NOVO: Reordenação dos cartões de métricas (Funil)
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("Matriculados", matriculados)
     c2.metric("Aguardando Vaga", aguardando)
@@ -196,7 +196,6 @@ def resumo_geral(df, chamada_atual, chamada_fechada, df_crono):
         Candidatos=("Nome", "count")
     ).reset_index()
 
-    # NOVO: Reordenação das colunas da tabela (Funil)
     resumo = resumo.rename(columns={"Aguardando_vaga": "Aguardando vaga", "Em_processo": "Em processo", "Lista_de_espera": "Lista de espera"})
     resumo = resumo[["Curso", "Matriculados", "Aguardando vaga", "Em processo", "Convocados", "Lista de espera", "Candidatos"]]
     st.dataframe(resumo, use_container_width=True, hide_index=True)
@@ -302,7 +301,6 @@ def main():
 
     st.markdown(f"## 📊 Visão Geral: {st.session_state.curso}")
     
-    # Cartões reordenados
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("Matriculados", len(df_view[df_view["Status"] == "🟢 Matriculado"]))
     c2.metric("Aguardando Vaga", len(df_view[df_view["Status"] == "🟡 Aguardando vaga"]))
@@ -339,7 +337,6 @@ def main():
     if dados_vagas:
         st.dataframe(pd.DataFrame(dados_vagas), use_container_width=True, hide_index=True)
 
-    # NOVO: Tabela Dinâmica de Vagas por Cota
     st.markdown("### 🧩 Vagas por Cota")
     dados_cota = []
     cotas_analisadas = COTAS if st.session_state.cota == "Todas" else [st.session_state.cota]
@@ -401,7 +398,6 @@ def main():
     if st.session_state.cota != "Todas":
         df_view = df_view[df_view["Cota do candidato"] == st.session_state.cota].copy()
     
-    # NOVO: Inclusão do "Ranking Cota" nas colunas visíveis por padrão
     cols = ["Ranking Cota", "Ranking", "Inscrição", "Nome", "Nota final", "Chamada", "Cota do candidato", "Vaga ocupada", "Status"]
     cols = [c for c in cols if c in df_view.columns]
 
