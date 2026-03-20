@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 
-VERSAO = "5.11.2"
+VERSAO = "5.11.3"
 
 st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
 
@@ -140,7 +140,6 @@ def processar(df):
     for c in ["Curso", "Processo seletivo", "Cota do candidato", "Cota da vaga garantida"]:
         if c in df.columns:
             df[c] = df[c].fillna("").astype(str).str.strip()
-            # Padronização de segurança para cruzamento de dados
             if c in ["Curso", "Processo seletivo"]:
                 df[c] = df[c].str.upper()
 
@@ -160,7 +159,6 @@ def processar(df):
 
 def processar_vagas(df_vagas):
     df_vagas = df_vagas.copy()
-    # Padronização de segurança para cruzamento de dados
     if "Curso" in df_vagas.columns:
         df_vagas["Curso"] = df_vagas["Curso"].astype(str).str.strip().str.upper()
     if "Processo seletivo" in df_vagas.columns:
@@ -339,20 +337,31 @@ def main():
     
     for proc in processos_view:
         df_vagas_proc = df_vagas_curso[df_vagas_curso["Processo seletivo"] == proc]
-        df_mat_proc = df_curso[(df_curso["Processo seletivo"] == proc) & (df_curso["Status"] == "🟢 Matriculado")]
+        df_cand_proc = df_curso[df_curso["Processo seletivo"] == proc]
+        df_mat_proc = df_cand_proc[df_cand_proc["Status"] == "🟢 Matriculado"]
         
         if st.session_state.cota == "Todas":
             v_ofertadas = df_vagas_proc[COTAS].sum().sum() if not df_vagas_proc.empty else 0
             v_preenchidas = len(df_mat_proc)
+            aguardando = len(df_cand_proc[df_cand_proc["Status"] == "🟡 Aguardando vaga"])
+            convocados = len(df_cand_proc[df_cand_proc["Status"] == "🟡 Convocado"])
+            espera = len(df_cand_proc[df_cand_proc["Status"] == "⚪ Lista de espera"])
         else:
-            v_ofertadas = df_vagas_proc[st.session_state.cota].sum() if (not df_vagas_proc.empty and st.session_state.cota in df_vagas_proc.columns) else 0
-            v_preenchidas = len(df_mat_proc[df_mat_proc["Vaga ocupada"] == st.session_state.cota])
+            cota_sel = st.session_state.cota
+            v_ofertadas = df_vagas_proc[cota_sel].sum() if (not df_vagas_proc.empty and cota_sel in df_vagas_proc.columns) else 0
+            v_preenchidas = len(df_mat_proc[df_mat_proc["Vaga ocupada"] == cota_sel])
+            aguardando = len(df_cand_proc[(df_cand_proc["Status"] == "🟡 Aguardando vaga") & (df_cand_proc["Cota do candidato"] == cota_sel)])
+            convocados = len(df_cand_proc[(df_cand_proc["Status"] == "🟡 Convocado") & (df_cand_proc["Cota do candidato"] == cota_sel)])
+            espera = len(df_cand_proc[(df_cand_proc["Status"] == "⚪ Lista de espera") & (df_cand_proc["Cota do candidato"] == cota_sel)])
             
         dados_vagas.append({
             "Processo seletivo": proc,
             "Vagas Ofertadas": int(v_ofertadas),
             "Vagas Preenchidas": int(v_preenchidas),
-            "Saldo de Vagas": int(v_ofertadas - v_preenchidas)
+            "Saldo de Vagas": int(v_ofertadas - v_preenchidas),
+            "Aguardando vaga": int(aguardando),
+            "Convocados": int(convocados),
+            "Lista de espera": int(espera)
         })
         
     if dados_vagas:
@@ -365,18 +374,30 @@ def main():
     for cota_especifica in cotas_analisadas:
         ofertadas_cota = 0
         preenchidas_cota = 0
+        aguardando_cota = 0
+        convocados_cota = 0
+        espera_cota = 0
+        
         for proc in processos_view:
             df_vagas_proc = df_vagas_curso[df_vagas_curso["Processo seletivo"] == proc]
-            df_mat_proc = df_curso[(df_curso["Processo seletivo"] == proc) & (df_curso["Status"] == "🟢 Matriculado")]
+            df_cand_proc = df_curso[df_curso["Processo seletivo"] == proc]
+            df_mat_proc = df_cand_proc[df_cand_proc["Status"] == "🟢 Matriculado"]
             
             ofertadas_cota += df_vagas_proc[cota_especifica].sum() if (not df_vagas_proc.empty and cota_especifica in df_vagas_proc.columns) else 0
             preenchidas_cota += len(df_mat_proc[df_mat_proc["Vaga ocupada"] == cota_especifica])
+            
+            aguardando_cota += len(df_cand_proc[(df_cand_proc["Status"] == "🟡 Aguardando vaga") & (df_cand_proc["Cota do candidato"] == cota_especifica)])
+            convocados_cota += len(df_cand_proc[(df_cand_proc["Status"] == "🟡 Convocado") & (df_cand_proc["Cota do candidato"] == cota_especifica)])
+            espera_cota += len(df_cand_proc[(df_cand_proc["Status"] == "⚪ Lista de espera") & (df_cand_proc["Cota do candidato"] == cota_especifica)])
             
         dados_cota.append({
             "Cota": cota_especifica,
             "Vagas Ofertadas": int(ofertadas_cota),
             "Vagas Preenchidas": int(preenchidas_cota),
-            "Saldo de Vagas": int(ofertadas_cota - preenchidas_cota)
+            "Saldo de Vagas": int(ofertadas_cota - preenchidas_cota),
+            "Aguardando vaga": int(aguardando_cota),
+            "Convocados": int(convocados_cota),
+            "Lista de espera": int(espera_cota)
         })
 
     if dados_cota:
