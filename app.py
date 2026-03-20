@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 
-VERSAO = "5.11.1"
+VERSAO = "5.11.2"
 
 st.set_page_config(page_title="DASHBOARD PROCESSOS SELETIVOS", layout="wide")
 
@@ -58,6 +58,10 @@ def parse_dates(text):
     if len(dates) == 1: return dates[0], dates[0]
     return dates[0], dates[1]
 
+def format_date(dt):
+    if pd.isna(dt): return ""
+    return dt.strftime("%d/%m às %Hh%M")
+
 def get_active_phase(df_group):
     now = pd.Timestamp.now()
     
@@ -68,15 +72,19 @@ def get_active_phase(df_group):
         res_start, _ = parse_dates(row.get('publicação_resultado'))
 
         if cand_start and now < cand_start:
-            return f"⏳ Aguardando: {sit}"
+            return f"⏳ Aguardando: {sit} (inicia em {format_date(cand_start)})"
+        
         if cand_start and cand_end and cand_start <= now <= cand_end:
-            return f"🟢 {sit} (Prazo Candidato)"
+            return f"🟢 {sit} (Prazo do Candidato - até {format_date(cand_end)})"
+        
         if cand_end and int_start and cand_end < now < int_start:
             return f"🟡 Aguardando Análise: {sit}"
+        
         if int_start and int_end and int_start <= now <= int_end:
-            return f"🟠 {sit} (Em Análise Interna)"
+            return f"🟡 {sit} (Análise Interna - até {format_date(int_end)})"
+        
         if int_end and res_start and int_end < now < res_start:
-            return f"🟡 Aguardando Resultado: {sit}"
+            return f"🟡 Aguardando Resultado (sai dia {format_date(res_start)})"
         
         final_date = res_start if res_start else (int_end if int_end else cand_end)
         
@@ -132,6 +140,9 @@ def processar(df):
     for c in ["Curso", "Processo seletivo", "Cota do candidato", "Cota da vaga garantida"]:
         if c in df.columns:
             df[c] = df[c].fillna("").astype(str).str.strip()
+            # Padronização de segurança para cruzamento de dados
+            if c in ["Curso", "Processo seletivo"]:
+                df[c] = df[c].str.upper()
 
     df["Nota final"] = pd.to_numeric(df["Nota final"], errors="coerce").fillna(0)
     df["Ranking"] = pd.to_numeric(df["Class ACP1"], errors="coerce")
@@ -146,6 +157,15 @@ def processar(df):
     df = df.rename(columns={"Cota da vaga garantida": "Vaga ocupada"})
     
     return df, chamada_atual, chamada_fechada
+
+def processar_vagas(df_vagas):
+    df_vagas = df_vagas.copy()
+    # Padronização de segurança para cruzamento de dados
+    if "Curso" in df_vagas.columns:
+        df_vagas["Curso"] = df_vagas["Curso"].astype(str).str.strip().str.upper()
+    if "Processo seletivo" in df_vagas.columns:
+        df_vagas["Processo seletivo"] = df_vagas["Processo seletivo"].astype(str).str.strip().str.upper()
+    return df_vagas
 
 def style_df(df):
     def cor(row):
@@ -209,7 +229,7 @@ def resumo_geral(df, chamada_atual, chamada_fechada, df_crono):
         for (proc, chamada), group in df_crono_local.groupby(['processo', 'chamada']):
             fase = get_active_phase(group)
             dados_processos.append({
-                "Processo seletivo": str(proc).title(),
+                "Processo seletivo": str(proc).upper(),
                 "Chamada": f"{chamada}ª Chamada",
                 "Status / Fase Atual": fase
             })
@@ -245,7 +265,7 @@ def main():
         st.stop()
 
     df_raw = pd.read_excel(arquivo, sheet_name="ranking")
-    df_vagas = pd.read_excel(arquivo, sheet_name="vagas")
+    df_vagas_raw = pd.read_excel(arquivo, sheet_name="vagas")
     
     try:
         df_crono = pd.read_excel(arquivo, sheet_name="cronograma")
@@ -253,6 +273,7 @@ def main():
         df_crono = None
 
     df, chamada_atual, chamada_fechada = processar(df_raw)
+    df_vagas = processar_vagas(df_vagas_raw)
 
     with st.sidebar:
         st.text_input("Buscar candidato", key="busca")
@@ -383,7 +404,7 @@ def main():
                     fase = "⚪ Cronograma indisponível"
                     
             dados_crono_local.append({
-                "Processo seletivo": str(proc).title(),
+                "Processo seletivo": str(proc).upper(),
                 "Chamada ativa (Global)": f"{global_atual}ª Chamada",
                 "Status do Curso": fase
             })
